@@ -1,0 +1,26 @@
+{
+  "appId": "com.controlherramientasobra.app",
+  "productName": "Control Herramientas Obra",
+  "directories": {
+    "app": ".",
+    "output": "release"
+  },
+  "files": [
+    "../dist/**/*",
+    "main.js",
+    "package.json",
+    "../assets/**/*"
+  ],
+  "win": {
+    "target": ["nsis"],
+    "icon": "../assets/icon.png"
+  },
+  "mac": {
+    "target": ["dmg"],
+    "icon": "../assets/icon.png"
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "icon": "../assets/icon.png"
+  }
+}

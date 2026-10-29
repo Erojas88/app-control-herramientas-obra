@@ -1,22 +1,74 @@
 {
-  "name": "app",
+  "name": "control-herramientas-obra",
   "version": "1.0.0",
+  "description": "Aplicación de control de herramientas y equipos de obra",
+  "author": "Control Herramientas Obra",
   "main": "index.ts",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "desktop": "electron ./desktop/main.js",
+    "dist:desktop": "cd desktop && npx electron-builder --config electron-builder.json"
+  },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "expo": "~58.0.19",
+    "expo-constants": "~58.0.13",
+    "expo-image-picker": "~58.0.10",
+    "expo-linking": "~58.0.14",
+    "expo-router": "~58.0.26",
     "expo-status-bar": "~58.0.4",
+    "firebase": "^13.1.0",
     "react": "19.3.0",
-    "react-native": "0.88.0"
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-qrcode-svg": "^6.3.46",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0",
+    "react-native-web": "^0.21.4"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "firebase-admin": "^14.5.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
-  },
-  "private": true
+  "build": {
+    "appId": "com.controlherramientasobra.app",
+    "productName": "Control Herramientas Obra",
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "package.json",
+      "assets/**/*"
+    ],
+    "directories": {
+      "app": ".",
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/icon.png"
+    }
+  }
 }

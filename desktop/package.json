@@ -1,0 +1,7 @@
+{
+  "name": "control-herramientas-obra-desktop",
+  "version": "1.0.0",
+  "description": "Desktop wrapper for Control Herramientas Obra",
+  "main": "main.js",
+  "private": true
+}
