@@ -2,8 +2,13 @@ import type { UserRole } from '../types';
 
 export const APP_DEEP_LINK_SCHEME = 'controlherramientasobra';
 export const REQUESTER_ACCESS_PATH = 'access';
+export const PUBLIC_REQUESTER_WEB_URL = process.env.EXPO_PUBLIC_REQUESTER_WEB_URL ?? 'https://control-herramientas-obra.vercel.app/solicitante';
 
-export const buildRequesterAccessUrl = (scheme = APP_DEEP_LINK_SCHEME) => {
+export const buildRequesterAccessUrl = (scheme = 'https') => {
+  if (scheme === 'https' || scheme === 'http') {
+    return PUBLIC_REQUESTER_WEB_URL;
+  }
+
   return `${scheme}://${REQUESTER_ACCESS_PATH}?role=solicitante`;
 };
 

@@ -31,6 +31,10 @@ export default function LoginScreen() {
     router.replace('/(tabs)/dashboard');
   };
 
+  const handlePublicSolicitanteAccess = () => {
+    router.push('/solicitante');
+  };
+
   const requesterAccessUrl = buildRequesterAccessUrl();
 
   return (
@@ -70,6 +74,10 @@ export default function LoginScreen() {
 
           <Pressable style={styles.secondaryButton} onPress={handleQuickSolicitanteAccess}>
             <Text style={styles.secondaryButtonText}>Entrar como solicitante</Text>
+          </Pressable>
+
+          <Pressable style={[styles.secondaryButton, styles.webButton]} onPress={handlePublicSolicitanteAccess}>
+            <Text style={styles.secondaryButtonText}>Abrir formulario público del solicitante</Text>
           </Pressable>
 
           <Text style={styles.quickAccessHint}>QR de acceso rápido: {requesterAccessUrl}</Text>
@@ -177,6 +185,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 12,
+  },
+  webButton: {
+    backgroundColor: '#ecfeff',
+    borderColor: '#67e8f9',
   },
   secondaryButtonText: {
     color: '#0f172a',
