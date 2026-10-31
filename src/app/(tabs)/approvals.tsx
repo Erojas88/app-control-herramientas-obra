@@ -1,26 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { mockRequests } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { getPendingRequestsForApproval, updateToolRequestItemApproval } from '../../services/firebaseService';
 import type { ToolRequest, ToolRequestItem } from '../../types';
 
 export default function ApprovalsScreen() {
   const { user } = useAuth();
-  const [requests, setRequests] = useState<ToolRequest[]>(mockRequests);
+  const [requests, setRequests] = useState<ToolRequest[]>([]);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [selectedPhoto, setSelectedPhoto] = useState<{ urls: string[]; index: number } | null>(null);
 
   useEffect(() => {
     const loadPending = async () => {
-      const pending = await getPendingRequestsForApproval();
-      if (pending.length) {
+      try {
+        const pending = await getPendingRequestsForApproval();
         setRequests(pending);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'No se pudo cargar solicitudes pendientes desde Firebase.';
+        setRequests([]);
+        Alert.alert('Firebase no disponible', message);
       }
     };
 
-    loadPending();
-  }, []);
+    if (user?.role === 'jefe_obra') {
+      loadPending();
+    }
+  }, [user?.role]);
 
   const pendingRequests = useMemo(
     () => requests.filter((request) => request.status === 'pending' || request.items.some((item) => item.approvalStatus === 'pending')),

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { mockRequests, mockTools } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { addToolRequest, getRequestsByUser, getTools } from '../../services/firebaseService';
 import type { Tool, ToolRequest } from '../../types';
@@ -19,19 +18,26 @@ export default function RequestsScreen() {
   const [requests, setRequests] = useState<ToolRequest[]>([]);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
   const [form, setForm] = useState(emptyForm);
-  const [toolCatalog, setToolCatalog] = useState<Tool[]>(mockTools);
+  const [toolCatalog, setToolCatalog] = useState<Tool[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
       if (!user) return;
 
-      const [tools, userRequests] = await Promise.all([
-        getTools(),
-        getRequestsByUser(user.uid),
-      ]);
+      try {
+        const [tools, userRequests] = await Promise.all([
+          getTools(),
+          getRequestsByUser(user.uid),
+        ]);
 
-      setToolCatalog(tools);
-      setRequests(userRequests.length ? userRequests : mockRequests.filter((request) => request.requesterUid === user.uid));
+        setToolCatalog(tools);
+        setRequests(userRequests);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'No se pudo cargar la información desde Firebase.';
+        setToolCatalog([]);
+        setRequests([]);
+        Alert.alert('Firebase no disponible', message);
+      }
     };
 
     loadData();

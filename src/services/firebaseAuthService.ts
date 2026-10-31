@@ -7,45 +7,12 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../config/firebase';
-import type { UserProfile, UserRole } from '../types';
+import type { UserProfile } from '../types';
 
 export type AuthResult = {
   ok: boolean;
   user?: UserProfile;
   error?: string;
-};
-
-const fallbackUsers: Record<string, UserProfile> = {
-  solicitante: {
-    uid: 'demo-solicitante',
-    fullName: 'María López',
-    role: 'solicitante',
-    company: 'BuildPro',
-    position: 'Soldador',
-    email: 'solicitante@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-  jefe_obra: {
-    uid: 'demo-jefe',
-    fullName: 'Luis Gómez',
-    role: 'jefe_obra',
-    company: 'BuildPro',
-    position: 'Jefe de Obra',
-    email: 'jefe@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-  admin: {
-    uid: 'demo-admin',
-    fullName: 'Ana Torres',
-    role: 'admin',
-    company: 'BuildPro',
-    position: 'Administrador',
-    email: 'admin@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
 };
 
 const normalizeRole = (role?: string): UserProfile['role'] => {
@@ -80,16 +47,16 @@ const getFirebaseAuthErrorMessage = (error: any): string => {
   return message;
 };
 
-export const getFallbackUserByRole = (role: UserRole): UserProfile => fallbackUsers[role];
-
 export const registerWithEmailAndPassword = async (
   email: string,
   password: string,
   profile: Partial<UserProfile>,
 ): Promise<AuthResult> => {
   if (!auth || !db || !isFirebaseConfigured) {
-    const role = profile.role ?? 'solicitante';
-    return { ok: true, user: { ...getFallbackUserByRole(role), ...profile, email } as UserProfile };
+    return {
+      ok: false,
+      error: 'Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* antes de crear usuarios.',
+    };
   }
 
   try {
@@ -114,14 +81,10 @@ export const registerWithEmailAndPassword = async (
 
 export const loginWithEmailAndPassword = async (email: string, password: string): Promise<AuthResult> => {
   if (!auth || !db || !isFirebaseConfigured) {
-    const normalizedEmail = email.toLowerCase();
-    const fallback = Object.values(fallbackUsers).find((user) => user.email.toLowerCase() === normalizedEmail);
-
-    if (fallback) {
-      return { ok: true, user: fallback };
-    }
-
-    return { ok: false, error: 'No existe un usuario demo con ese correo.' };
+    return {
+      ok: false,
+      error: 'Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para iniciar sesión.',
+    };
   }
 
   try {
@@ -144,19 +107,10 @@ export const loginWithEmailAndPassword = async (email: string, password: string)
       return { ok: true, user: normalizedUser };
     }
 
-    const fallbackUser: UserProfile = {
-      uid: credential.user.uid,
-      fullName: credential.user.displayName ?? 'Usuario',
-      role: 'solicitante',
-      company: 'BuildPro',
-      position: 'Trabajador',
-      email: credential.user.email ?? email,
-      active: true,
-      projectName: 'Proyecto San Martín',
+    return {
+      ok: false,
+      error: 'Este usuario no tiene un perfil registrado en Firebase. Contacta al administrador para crear su cuenta.',
     };
-
-    await setDoc(doc(db, 'users', credential.user.uid), fallbackUser);
-    return { ok: true, user: fallbackUser };
   } catch (error: any) {
     return { ok: false, error: getFirebaseAuthErrorMessage(error) };
   }
@@ -164,7 +118,7 @@ export const loginWithEmailAndPassword = async (email: string, password: string)
 
 export const logout = async () => {
   if (!auth || !isFirebaseConfigured) {
-    return;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* antes de cerrar sesión.');
   }
 
   await firebaseSignOut(auth);

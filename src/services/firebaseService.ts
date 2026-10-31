@@ -1,6 +1,5 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
-import { mockRequests, mockTools } from '../data/mockData';
 import type { NotificationItem, Tool, ToolRequest, ToolRequestItem, UserProfile } from '../types';
 
 const normalizeToolDoc = (toolId: string, data: any): Tool => ({
@@ -18,8 +17,47 @@ const normalizeToolDoc = (toolId: string, data: any): Tool => ({
   updatedAt: data.updatedAt ?? new Date().toISOString(),
 });
 
+const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) => {
+  if (!items.length) {
+    return 'pending';
+  }
+
+  const approvalStates = items.map((item) => item.approvalStatus ?? 'pending');
+
+  if (approvalStates.every((status) => status === 'approved')) {
+    return 'approved';
+  }
+
+  if (approvalStates.every((status) => status === 'rejected')) {
+    return 'rejected';
+  }
+
+  return 'pending';
+};
+
 const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
   const items = Array.isArray(data.items) ? data.items : [];
+  const normalizedItems = items.map((item: any, index: number) => ({
+    id: item.id ?? `${requestId}-item-${index}`,
+    requestId: data.id ?? requestId,
+    toolId: item.toolId ?? '',
+    toolName: item.toolName ?? item.name ?? 'Herramienta',
+    quantity: Number(item.quantity ?? 1),
+    purpose: item.purpose ?? '',
+    workArea: item.workArea ?? '',
+    dueDate: item.dueDate ?? '',
+    training: item.training ?? 'yes',
+    condition: item.condition ?? 'Good',
+    approvalStatus: item.approvalStatus ?? 'pending',
+    approvalComment: item.approvalComment ?? item.comment ?? '',
+    approverName: item.approverName ?? undefined,
+    notes: item.notes ?? '',
+    photoUrls: item.photoUrls ?? [],
+    createdAt: item.createdAt ?? data.createdAt ?? new Date().toISOString(),
+    approvedAt: item.approvedAt ?? item.approved_at ?? undefined,
+  }));
+
+  const normalizedStatus = data.status ?? deriveRequestStatus(normalizedItems);
 
   return {
     id: data.id ?? requestId,
@@ -30,85 +68,25 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
     projectName: data.projectName ?? data.project ?? 'Proyecto San Martín',
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? data.modifiedAt ?? undefined,
-    status: data.status ?? 'pending',
+    status: normalizedStatus,
     observations: data.observations ?? '',
     approverName: data.approverName ?? undefined,
-    items: items.map((item: any, index: number) => ({
-      id: item.id ?? `${requestId}-item-${index}`,
-      requestId: data.id ?? requestId,
-      toolId: item.toolId ?? '',
-      toolName: item.toolName ?? item.name ?? 'Herramienta',
-      quantity: Number(item.quantity ?? 1),
-      purpose: item.purpose ?? '',
-      workArea: item.workArea ?? '',
-      dueDate: item.dueDate ?? '',
-      training: item.training ?? 'yes',
-      condition: item.condition ?? 'Good',
-      approvalStatus: item.approvalStatus ?? 'pending',
-      approvalComment: item.approvalComment ?? item.comment ?? '',
-      approverName: item.approverName ?? undefined,
-      notes: item.notes ?? '',
-      photoUrls: item.photoUrls ?? [],
-      createdAt: item.createdAt ?? data.createdAt ?? new Date().toISOString(),
-      approvedAt: item.approvedAt ?? item.approved_at ?? undefined,
-    })),
+    items: normalizedItems,
   };
 };
 
-const defaultTools = mockTools.map((tool) => ({
-  ...tool,
-  createdAt: new Date().toISOString(),
-})) as Tool[];
-
-const defaultUsers: UserProfile[] = [
-  {
-    uid: 'demo-solicitante',
-    fullName: 'María López',
-    role: 'solicitante',
-    company: 'BuildPro',
-    position: 'Soldador',
-    email: 'solicitante@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-  {
-    uid: 'demo-jefe',
-    fullName: 'Luis Gómez',
-    role: 'jefe_obra',
-    company: 'BuildPro',
-    position: 'Jefe de Obra',
-    email: 'jefe@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-  {
-    uid: 'demo-admin',
-    fullName: 'Ana Torres',
-    role: 'admin',
-    company: 'BuildPro',
-    position: 'Administrador',
-    email: 'admin@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-];
-
 export const getTools = async (): Promise<Tool[]> => {
   if (!db || !isFirebaseConfigured) {
-    return defaultTools;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para cargar herramientas reales.');
   }
 
   const snapshot = await getDocs(collection(db, 'tools'));
-  if (snapshot.empty) {
-    return defaultTools;
-  }
-
   return snapshot.docs.map((docSnap) => normalizeToolDoc(docSnap.id, docSnap.data()));
 };
 
 export const createTool = async (payload: Partial<Tool>) => {
   if (!db || !isFirebaseConfigured) {
-    return 'demo-tool-id';
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para crear herramientas reales.');
   }
 
   const toolData = {
@@ -251,7 +229,7 @@ export const deleteTool = async (toolId: string) => {
 
 export const getUsers = async (): Promise<UserProfile[]> => {
   if (!db || !isFirebaseConfigured) {
-    return defaultUsers;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para cargar usuarios reales.');
   }
 
   const snapshot = await getDocs(collection(db, 'users'));
@@ -263,7 +241,7 @@ export const getUsers = async (): Promise<UserProfile[]> => {
 
 export const getAllRequests = async (): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return mockRequests;
+    return [];
   }
 
   const snapshot = await getDocs(collection(db, 'toolRequests'));
@@ -272,7 +250,7 @@ export const getAllRequests = async (): Promise<ToolRequest[]> => {
 
 export const getRequestsByUser = async (uid: string): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return mockRequests.filter((request) => request.requesterUid === uid || request.requesterName === 'María López' || request.requesterName === 'Carlos Rojas');
+    return [];
   }
 
   const q = query(collection(db, 'toolRequests'), where('requesterUid', '==', uid));
@@ -282,13 +260,16 @@ export const getRequestsByUser = async (uid: string): Promise<ToolRequest[]> => 
 
 export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return mockRequests.filter((request) => request.status === 'pending' || request.items.some((item) => item.approvalStatus === 'pending'));
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para revisar solicitudes reales.');
   }
 
   const snapshot = await getDocs(collection(db, 'toolRequests'));
   const requests = snapshot.docs
     .map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()))
-    .filter((request) => request.status === 'pending' || request.items.some((item) => item.approvalStatus === 'pending'));
+    .filter((request) => {
+      const effectiveStatus = deriveRequestStatus(request.items ?? []);
+      return effectiveStatus === 'pending' || request.status === 'pending';
+    });
 
   return requests;
 };
@@ -383,7 +364,7 @@ export const getDashboardSummary = async () => {
 
 export const getApprovedRequestsForDelivery = async (): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return mockRequests.filter((request) => request.status === 'approved');
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para consultar solicitudes aprobadas.');
   }
 
   const snapshot = await getDocs(collection(db, 'toolRequests'));
@@ -395,7 +376,7 @@ export const getApprovedRequestsForDelivery = async (): Promise<ToolRequest[]> =
 
 export const addToolRequest = async (payload: Partial<ToolRequest>) => {
   if (!db || !isFirebaseConfigured) {
-    return 'demo-request-id';
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para guardar la solicitud en la base real.');
   }
 
   const ref = await addDoc(collection(db, 'toolRequests'), {
@@ -422,7 +403,7 @@ export const addToolRequest = async (payload: Partial<ToolRequest>) => {
 
 export const updateToolRequestStatus = async (requestId: string, status: ToolRequest['status']) => {
   if (!db || !isFirebaseConfigured) {
-    return;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para actualizar el estado de la solicitud.');
   }
 
   const ref = doc(db, 'toolRequests', requestId);
@@ -437,7 +418,7 @@ export const updateToolRequestItemApproval = async (
   comment?: string,
 ) => {
   if (!db || !isFirebaseConfigured) {
-    return;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para registrar la aprobación.');
   }
 
   const ref = doc(db, 'toolRequests', requestId);
@@ -463,10 +444,7 @@ export const updateToolRequestItemApproval = async (
     };
   });
 
-  const allDone = nextItems.every((item) => item.approvalStatus !== 'pending');
-  const allApproved = nextItems.every((item) => item.approvalStatus === 'approved');
-  const allRejected = nextItems.every((item) => item.approvalStatus === 'rejected');
-  const requestStatus = allDone ? (allApproved ? 'approved' : allRejected ? 'rejected' : 'pending') : 'pending';
+  const requestStatus = deriveRequestStatus(nextItems);
 
   await updateDoc(ref, {
     items: nextItems,
@@ -530,7 +508,7 @@ export const createNotification = async (payload: {
   toolId?: string;
 }) => {
   if (!db || !isFirebaseConfigured) {
-    return 'demo-notification-id';
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para crear notificaciones reales.');
   }
 
   const ref = await addDoc(collection(db, 'notifications'), {
@@ -544,7 +522,7 @@ export const createNotification = async (payload: {
 
 export const getNotificationsByUser = async (uid: string): Promise<NotificationItem[]> => {
   if (!db || !isFirebaseConfigured) {
-    return [];
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para cargar notificaciones reales.');
   }
 
   const q = query(collection(db, 'notifications'), where('recipientUid', '==', uid));
@@ -560,7 +538,7 @@ export const getNotificationsByUser = async (uid: string): Promise<NotificationI
 
 export const getUnreadNotificationCount = async (uid: string) => {
   if (!db || !isFirebaseConfigured) {
-    return 0;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para contar notificaciones pendientes.');
   }
 
   const q = query(collection(db, 'notifications'), where('recipientUid', '==', uid), where('read', '==', false));
@@ -570,7 +548,7 @@ export const getUnreadNotificationCount = async (uid: string) => {
 
 export const markNotificationsAsRead = async (uid: string) => {
   if (!db || !isFirebaseConfigured) {
-    return;
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* antes de marcar notificaciones como leídas.');
   }
 
   const snapshot = await getDocs(query(collection(db, 'notifications'), where('recipientUid', '==', uid), where('read', '==', false)));
@@ -591,7 +569,7 @@ export const recordToolDelivery = async (delivery: {
   photos?: string[];
 }) => {
   if (!db || !isFirebaseConfigured) {
-    return 'demo-delivery-id';
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para registrar entregas reales.');
   }
 
   const ref = await addDoc(collection(db, 'toolDeliveries'), {
@@ -637,7 +615,7 @@ export const recordToolReturn = async (payload: {
   reportedDamage?: boolean;
 }) => {
   if (!db || !isFirebaseConfigured) {
-    return 'demo-return-id';
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para registrar devoluciones reales.');
   }
 
   const ref = await addDoc(collection(db, 'toolReturns'), {
