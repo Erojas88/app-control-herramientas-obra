@@ -1,6 +1,40 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
-import type { NotificationItem, Tool, ToolRequest, ToolRequestItem, UserProfile } from '../types';
+import type { NotificationItem, Tool, ToolRequest, ToolRequestItem, ToolStatus, UserProfile } from '../types';
+
+export const normalizeToolStatus = (value: unknown): ToolStatus => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+
+  if (!normalized) {
+    return 'available';
+  }
+
+  const statusMap: Record<string, ToolStatus> = {
+    available: 'available',
+    disponible: 'available',
+    disponibleparauso: 'available',
+    ready: 'available',
+    active: 'available',
+    ok: 'available',
+    loaned: 'loaned',
+    prestado: 'loaned',
+    prestada: 'loaned',
+    inuse: 'loaned',
+    enuso: 'loaned',
+    maintenance: 'maintenance',
+    mantenimiento: 'maintenance',
+    repair: 'maintenance',
+    damaged: 'maintenance',
+    danado: 'maintenance',
+    broken: 'maintenance',
+    out_of_service: 'out_of_service',
+    fuera_de_servicio: 'out_of_service',
+    fuera: 'out_of_service',
+    inactivo: 'out_of_service',
+  };
+
+  return statusMap[normalized] ?? 'available';
+};
 
 const normalizeToolDoc = (toolId: string, data: any): Tool => ({
   id: toolId,
@@ -9,7 +43,7 @@ const normalizeToolDoc = (toolId: string, data: any): Tool => ({
   brand: data.brand ?? 'Sin marca',
   model: data.model ?? 'Sin modelo',
   serialNumber: data.serialNumber ?? '',
-  status: data.status ?? 'available',
+  status: normalizeToolStatus(data.status),
   photoUrl: data.photoUrl ?? '',
   photoLabel: data.photoLabel ?? '🧰',
   observations: data.observations ?? 'Sin observaciones',

@@ -140,7 +140,10 @@ export default function SolicitantePublicScreen() {
   );
 
   const availableTools = useMemo(
-    () => toolCatalog.filter((tool) => tool.status === 'available'),
+    () => toolCatalog.filter((tool) => {
+      const raw = String((tool as { status?: unknown }).status ?? '').trim().toLowerCase();
+      return raw === 'available' || raw === 'disponible' || raw === 'disponibleparauso' || raw === 'ready' || raw === 'active' || raw === 'ok' || raw === '';
+    }),
     [toolCatalog],
   );
 
