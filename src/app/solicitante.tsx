@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
@@ -60,6 +60,43 @@ export default function SolicitantePublicScreen() {
   const [showDueDatePicker, setShowDueDatePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const webDateInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openWebDatePicker = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'date';
+    input.value = form.dueDate || getTodayDate();
+    input.style.position = 'fixed';
+    input.style.left = '-1000px';
+    input.style.top = '-1000px';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    input.onchange = (event) => {
+      const target = event.target as HTMLInputElement;
+      const selected = target.value;
+      if (selected) {
+        setForm((current) => ({ ...current, dueDate: selected }));
+      }
+      document.body.removeChild(input);
+      webDateInputRef.current = null;
+    };
+    input.onblur = () => {
+      if (document.body.contains(input)) {
+        document.body.removeChild(input);
+      }
+      webDateInputRef.current = null;
+    };
+
+    document.body.appendChild(input);
+    webDateInputRef.current = input;
+    input.showPicker?.();
+    input.focus();
+    input.click();
+  }, [form.dueDate]);
 
   useFocusEffect(
     useCallback(() => {
@@ -443,27 +480,35 @@ export default function SolicitantePublicScreen() {
         />
 
         <Text style={styles.label}>Fecha estimada de devolución</Text>
-        <Pressable style={styles.dateInput} onPress={() => setShowDueDatePicker(true)}>
-          <Text style={[styles.dateInputText, !form.dueDate && styles.placeholderText]}>{formatDateForDisplay(form.dueDate)}</Text>
-        </Pressable>
-        {showDueDatePicker && (
-          <View style={styles.datePickerWrap}>
-            <DateTimePicker
-              value={form.dueDate ? new Date(`${form.dueDate}T12:00:00`) : new Date()}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
-              minimumDate={new Date(new Date().setHours(0, 0, 0, 0))}
-              onChange={(_, selectedDate) => {
-                setShowDueDatePicker(false);
-                if (selectedDate) {
-                  const isoDate = new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000)
-                    .toISOString()
-                    .slice(0, 10);
-                  setForm((current) => ({ ...current, dueDate: isoDate }));
-                }
-              }}
-            />
-          </View>
+        {Platform.OS === 'web' ? (
+          <Pressable style={styles.dateInput} onPress={openWebDatePicker}>
+            <Text style={[styles.dateInputText, !form.dueDate && styles.placeholderText]}>{formatDateForDisplay(form.dueDate)}</Text>
+          </Pressable>
+        ) : (
+          <>
+            <Pressable style={styles.dateInput} onPress={() => setShowDueDatePicker(true)}>
+              <Text style={[styles.dateInputText, !form.dueDate && styles.placeholderText]}>{formatDateForDisplay(form.dueDate)}</Text>
+            </Pressable>
+            {showDueDatePicker && (
+              <View style={styles.datePickerWrap}>
+                <DateTimePicker
+                  value={form.dueDate ? new Date(`${form.dueDate}T12:00:00`) : new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+                  minimumDate={new Date(new Date().setHours(0, 0, 0, 0))}
+                  onChange={(_, selectedDate) => {
+                    setShowDueDatePicker(false);
+                    if (selectedDate) {
+                      const isoDate = new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000)
+                        .toISOString()
+                        .slice(0, 10);
+                      setForm((current) => ({ ...current, dueDate: isoDate }));
+                    }
+                  }}
+                />
+              </View>
+            )}
+          </>
         )}
 
         <Text style={styles.label}>¿Ha recibido capacitación?</Text>
