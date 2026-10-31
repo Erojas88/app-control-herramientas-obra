@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { mockRequests } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { getPendingRequestsForApproval, updateToolRequestItemApproval } from '../../services/firebaseService';
@@ -9,6 +9,7 @@ export default function ApprovalsScreen() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<ToolRequest[]>(mockRequests);
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [selectedPhoto, setSelectedPhoto] = useState<{ urls: string[]; index: number } | null>(null);
 
   useEffect(() => {
     const loadPending = async () => {
@@ -78,8 +79,44 @@ export default function ApprovalsScreen() {
     );
   }
 
+  const currentPhotoUrl = selectedPhoto && selectedPhoto.urls.length > 0 ? selectedPhoto.urls[selectedPhoto.index] : null;
+
   return (
     <View style={styles.container}>
+      <Modal visible={!!selectedPhoto} transparent animationType="fade" onRequestClose={() => setSelectedPhoto(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setSelectedPhoto(null)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            {currentPhotoUrl && (
+              <>
+                <View style={styles.carouselHeader}>
+                  <Text style={styles.carouselCounter}>{selectedPhoto!.index + 1} / {selectedPhoto!.urls.length}</Text>
+                </View>
+                <Image source={{ uri: currentPhotoUrl }} style={styles.modalImage} resizeMode="contain" />
+                <View style={styles.carouselControls}>
+                  <Pressable
+                    style={[styles.carouselButton, selectedPhoto!.index === 0 && styles.carouselButtonDisabled]}
+                    disabled={selectedPhoto!.index === 0}
+                    onPress={() => setSelectedPhoto((current) => current ? { ...current, index: Math.max(0, current.index - 1) } : current)}
+                  >
+                    <Text style={styles.carouselButtonText}>Anterior</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.carouselButton, selectedPhoto!.index === selectedPhoto!.urls.length - 1 && styles.carouselButtonDisabled]}
+                    disabled={selectedPhoto!.index === selectedPhoto!.urls.length - 1}
+                    onPress={() => setSelectedPhoto((current) => current ? { ...current, index: Math.min(current.urls.length - 1, current.index + 1) } : current)}
+                  >
+                    <Text style={styles.carouselButtonText}>Siguiente</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+            <Pressable style={styles.closeButton} onPress={() => setSelectedPhoto(null)}>
+              <Text style={styles.closeButtonText}>Cerrar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Text style={styles.title}>Aprobación del Jefe de Obra</Text>
       <FlatList
         data={pendingRequests}
@@ -105,6 +142,24 @@ export default function ApprovalsScreen() {
                 <Text style={styles.itemText}>Área: {entry.workArea}</Text>
                 <Text style={styles.itemText}>Capacitación: {entry.training}</Text>
                 <Text style={styles.itemText}>Estado al retirar: {entry.condition}</Text>
+                {entry.photoUrls && entry.photoUrls.length > 0 ? (
+                  <View style={styles.photoSection}>
+                    <Text style={styles.photoLabel}>Evidencia fotográfica</Text>
+                    <View style={styles.photoRow}>
+                      {entry.photoUrls.map((photoUrl, photoIndex) => (
+                        <Pressable key={`${entry.id}-photo-${photoIndex}`} onPress={() => setSelectedPhoto({ urls: entry.photoUrls ?? [], index: photoIndex })}>
+                          <Image
+                            source={{ uri: photoUrl }}
+                            style={styles.photoThumb}
+                            resizeMode="cover"
+                          />
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.photoEmpty}>Sin evidencia fotográfica adjunta.</Text>
+                )}
                 {entry.training === 'no' && (
                   <Text style={styles.warning}>El uso de esta herramienta requiere autorización especial y capacitación previa.</Text>
                 )}
@@ -227,6 +282,98 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 13,
     marginBottom: 2,
+  },
+  photoSection: {
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  photoLabel: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  photoThumb: {
+    width: 82,
+    height: 82,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  photoEmpty: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: 360,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+  },
+  carouselHeader: {
+    width: '100%',
+    alignItems: 'flex-end',
+    marginBottom: 8,
+  },
+  carouselCounter: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  carouselControls: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    gap: 10,
+  },
+  carouselButton: {
+    flex: 1,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  carouselButtonDisabled: {
+    opacity: 0.45,
+  },
+  carouselButtonText: {
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  closeButton: {
+    marginTop: 14,
+    backgroundColor: '#0f766e',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontWeight: '700',
   },
   warning: {
     color: '#b45309',

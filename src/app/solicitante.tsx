@@ -15,7 +15,29 @@ type ToolDraft = {
   photoUrls: string[];
 };
 
-const getTodayDate = () => new Date().toISOString().slice(0, 10);
+const getTodayDate = () => {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 10);
+};
+
+const formatDateForDisplay = (value: string) => {
+  if (!value) {
+    return 'Selecciona una fecha';
+  }
+
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return 'Selecciona una fecha';
+  }
+
+  return date.toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
 
 const buildEmptyForm = () => ({
   fullName: '',
@@ -422,30 +444,26 @@ export default function SolicitantePublicScreen() {
 
         <Text style={styles.label}>Fecha estimada de devolución</Text>
         <Pressable style={styles.dateInput} onPress={() => setShowDueDatePicker(true)}>
-          <Text style={[styles.dateInputText, !form.dueDate && styles.placeholderText]}>
-            {form.dueDate ? new Date(`${form.dueDate}T12:00:00`).toLocaleDateString('es-MX', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-            }) : 'Selecciona una fecha'}
-          </Text>
+          <Text style={[styles.dateInputText, !form.dueDate && styles.placeholderText]}>{formatDateForDisplay(form.dueDate)}</Text>
         </Pressable>
         {showDueDatePicker && (
-          <DateTimePicker
-            value={form.dueDate ? new Date(`${form.dueDate}T12:00:00`) : new Date()}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            minimumDate={new Date()}
-            onChange={(_, selectedDate) => {
-              setShowDueDatePicker(false);
-              if (selectedDate) {
-                const isoDate = new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000)
-                  .toISOString()
-                  .slice(0, 10);
-                setForm((current) => ({ ...current, dueDate: isoDate }));
-              }
-            }}
-          />
+          <View style={styles.datePickerWrap}>
+            <DateTimePicker
+              value={form.dueDate ? new Date(`${form.dueDate}T12:00:00`) : new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+              minimumDate={new Date(new Date().setHours(0, 0, 0, 0))}
+              onChange={(_, selectedDate) => {
+                setShowDueDatePicker(false);
+                if (selectedDate) {
+                  const isoDate = new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .slice(0, 10);
+                  setForm((current) => ({ ...current, dueDate: isoDate }));
+                }
+              }}
+            />
+          </View>
         )}
 
         <Text style={styles.label}>¿Ha recibido capacitación?</Text>
@@ -586,6 +604,14 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     color: '#94a3b8',
+  },
+  datePickerWrap: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
   },
   chipGroup: {
     flexDirection: 'row',
