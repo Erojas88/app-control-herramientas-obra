@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { getPendingRequestsForApproval, updateToolRequestItemApproval } from '../../services/firebaseService';
 import type { ToolRequest, ToolRequestItem } from '../../types';
@@ -23,12 +25,22 @@ export default function ApprovalsScreen() {
     };
 
     if (user?.role === 'jefe_obra') {
-      loadPending();
+      void loadPending();
+
+      if (!db) {
+        return;
+      }
+
+      const unsubscribe = onSnapshot(collection(db, 'toolRequests'), () => {
+        void loadPending();
+      });
+
+      return () => unsubscribe();
     }
   }, [user?.role]);
 
   const pendingRequests = useMemo(
-    () => requests.filter((request) => request.status === 'pending' || request.items.some((item) => item.approvalStatus === 'pending')),
+    () => requests.filter((request) => request.items.some((item) => item.approvalStatus === 'pending')),
     [requests],
   );
 

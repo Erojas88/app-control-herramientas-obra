@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { addToolRequest, getRequestsByUser, getTools } from '../../services/firebaseService';
 import type { Tool, ToolRequest } from '../../types';
@@ -40,8 +42,25 @@ export default function RequestsScreen() {
       }
     };
 
-    loadData();
-  }, [user]);
+    void loadData();
+
+    if (!user?.uid || !db) {
+      return;
+    }
+
+    const requestsQuery = query(collection(db, 'toolRequests'), where('requesterUid', '==', user.uid));
+    const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
+      const userRequests = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as ToolRequest[];
+      setRequests(userRequests);
+    }, (error) => {
+      console.warn('No se pudo escuchar cambios del historial del solicitante.', error);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   const availableTools = useMemo(
     () => toolCatalog.filter((tool) => tool.status === 'available'),
@@ -226,21 +245,43 @@ export default function RequestsScreen() {
           <View key={item.id} style={styles.card}>
             <View style={styles.rowBetween}>
               <Text style={styles.requestId}>{item.id}</Text>
-              <Text style={[styles.status, item.status === 'approved' ? styles.approved : styles.pending]}>{item.status}</Text>
+              <Text style={[
+                styles.status,
+                item.status === 'approved' ? styles.approved :
+                item.status === 'rejected' ? styles.rejected :
+                styles.pending,
+              ]}>
+                {item.status === 'approved' ? 'aprobada' : item.status === 'rejected' ? 'rechazada' : 'pendiente'}
+              </Text>
             </View>
             <Text style={styles.requester}>{item.requesterName}</Text>
             <Text style={styles.meta}>{item.projectName} · {item.company}</Text>
             <Text style={styles.meta}>Fecha: {item.createdAt}</Text>
 
-            {item.items.map((entry) => (
-              <View key={entry.id} style={styles.itemBox}>
-                <Text style={styles.itemTitle}>{entry.toolName}</Text>
-                <Text style={styles.itemText}>Cantidad: {entry.quantity}</Text>
-                <Text style={styles.itemText}>Motivo: {entry.purpose}</Text>
-                <Text style={styles.itemText}>Capacitación: {entry.training}</Text>
-                <Text style={styles.itemText}>Estado: {entry.condition}</Text>
-              </View>
-            ))}
+            {item.items.map((entry) => {
+              const approvalLabel = entry.approvalStatus === 'approved'
+                ? 'Aprobada'
+                : entry.approvalStatus === 'rejected'
+                  ? 'Rechazada'
+                  : 'Pendiente';
+
+              return (
+                <View key={entry.id} style={styles.itemBox}>
+                  <Text style={styles.itemTitle}>{entry.toolName}</Text>
+                  <Text style={styles.itemText}>Cantidad: {entry.quantity}</Text>
+                  <Text style={styles.itemText}>Motivo: {entry.purpose}</Text>
+                  <Text style={styles.itemText}>Capacitación: {entry.training}</Text>
+                  <Text style={styles.itemText}>Estado de la herramienta: {entry.condition}</Text>
+                  <Text style={[
+                    styles.itemText,
+                    styles.approvalState,
+                    entry.approvalStatus === 'approved' ? styles.approvedState :
+                    entry.approvalStatus === 'rejected' ? styles.rejectedState :
+                    styles.pendingState,
+                  ]}>Estado de aprobación: {approvalLabel}</Text>
+                </View>
+              );
+            })}
           </View>
         ))}
       </View>
@@ -414,6 +455,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#dcfce7',
     color: '#166534',
   },
+  rejected: {
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+  },
   requester: {
     fontSize: 18,
     fontWeight: '700',
@@ -439,5 +484,18 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 13,
     marginBottom: 2,
+  },
+  approvalState: {
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  approvedState: {
+    color: '#166534',
+  },
+  rejectedState: {
+    color: '#991b1b',
+  },
+  pendingState: {
+    color: '#b45309',
   },
 });

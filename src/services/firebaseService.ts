@@ -51,7 +51,7 @@ const normalizeToolDoc = (toolId: string, data: any): Tool => ({
   updatedAt: data.updatedAt ?? new Date().toISOString(),
 });
 
-const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) => {
+export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) => {
   if (!items.length) {
     return 'pending';
   }
@@ -91,7 +91,7 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
     approvedAt: item.approvedAt ?? item.approved_at ?? undefined,
   }));
 
-  const normalizedStatus = data.status ?? deriveRequestStatus(normalizedItems);
+  const normalizedStatus = deriveRequestStatus(normalizedItems);
 
   return {
     id: data.id ?? requestId,
@@ -301,8 +301,13 @@ export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> =>
   const requests = snapshot.docs
     .map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()))
     .filter((request) => {
-      const effectiveStatus = deriveRequestStatus(request.items ?? []);
-      return effectiveStatus === 'pending' || request.status === 'pending';
+      if (!request.items?.length) {
+        return false;
+      }
+
+      const hasPendingItems = request.items.some((item) => item.approvalStatus === 'pending');
+      const hasActiveItems = request.items.some((item) => item.approvalStatus === 'approved' || item.approvalStatus === 'rejected' || item.approvalStatus === 'pending');
+      return hasPendingItems && hasActiveItems;
     });
 
   return requests;

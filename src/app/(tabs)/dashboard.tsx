@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
+import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { getDashboardSummary, getNotificationsByUser, getTools, markNotificationsAsRead } from '../../services/firebaseService';
 import { buildRequesterAccessUrl } from '../../utils/quickAccess';
@@ -26,23 +28,55 @@ export default function DashboardScreen() {
   const [summary, setSummary] = useState(emptySummary);
 
   useEffect(() => {
-    const loadDashboard = async () => {
-      const [toolList, dashboardSummary] = await Promise.all([
-        getTools(),
-        getDashboardSummary(),
-      ]);
+    let isMounted = true;
 
-      setTools(toolList);
-      setSummary(dashboardSummary);
+    const refreshDashboard = async () => {
+      try {
+        const [toolList, dashboardSummary] = await Promise.all([
+          getTools(),
+          getDashboardSummary(),
+        ]);
 
-      if (user?.uid) {
-        const userNotifications = await getNotificationsByUser(user.uid);
-        setNotifications(userNotifications);
-        await markNotificationsAsRead(user.uid);
+        if (!isMounted) {
+          return;
+        }
+
+        setTools(toolList);
+        setSummary(dashboardSummary);
+
+        if (user?.uid) {
+          const userNotifications = await getNotificationsByUser(user.uid);
+          if (isMounted) {
+            setNotifications(userNotifications);
+            await markNotificationsAsRead(user.uid);
+          }
+        }
+      } catch (error) {
+        console.warn('No se pudo sincronizar el dashboard con Firebase.', error);
       }
     };
 
-    loadDashboard();
+    void refreshDashboard();
+
+    if (!db) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const unsubscribeRequests = onSnapshot(collection(db, 'toolRequests'), () => {
+      void refreshDashboard();
+    });
+
+    const unsubscribeTools = onSnapshot(collection(db, 'tools'), () => {
+      void refreshDashboard();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribeRequests();
+      unsubscribeTools();
+    };
   }, [user?.uid]);
 
   const dashboardSummary = summary;
