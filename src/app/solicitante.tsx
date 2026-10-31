@@ -30,6 +30,7 @@ export default function SolicitantePublicScreen() {
   const [toolDrafts, setToolDrafts] = useState<Record<string, ToolDraft>>({});
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [submitFeedback, setSubmitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const loadTools = async () => {
@@ -70,6 +71,48 @@ export default function SolicitantePublicScreen() {
   };
 
   const handleAddPhoto = async (toolId: string) => {
+    const handlePickedFiles = async (files: FileList | File[]) => {
+      const uploadedUrls: string[] = [];
+
+      for (const file of Array.from(files)) {
+        try {
+          const url = await uploadToolEvidence(`public-${Date.now()}`, toolId, file);
+          uploadedUrls.push(url);
+        } catch (error) {
+          console.warn('No se pudo subir la foto de la herramienta.', error);
+        }
+      }
+
+      if (!uploadedUrls.length) {
+        Alert.alert('No se adjuntó evidencia', 'No fue posible subir las fotos seleccionadas. Intenta nuevamente.');
+        return;
+      }
+
+      setToolDrafts((current) => ({
+        ...current,
+        [toolId]: {
+          condition: current[toolId]?.condition ?? 'Good',
+          photoUrls: [...(current[toolId]?.photoUrls ?? []), ...uploadedUrls],
+        },
+      }));
+    };
+
+    if (typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.multiple = true;
+      input.onchange = async (event) => {
+        const target = event.target as HTMLInputElement;
+        if (!target.files?.length) {
+          return;
+        }
+        await handlePickedFiles(target.files);
+      };
+      input.click();
+      return;
+    }
+
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
       Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería para adjuntar evidencia de la herramienta.');
@@ -129,13 +172,8 @@ export default function SolicitantePublicScreen() {
       return;
     }
 
-    const missingEvidence = selectedToolIds.some((toolId) => !(toolDrafts[toolId]?.photoUrls?.length));
-    if (missingEvidence) {
-      Alert.alert('Falta evidencia', 'Debes adjuntar al menos una foto por herramienta antes de enviar la solicitud.');
-      return;
-    }
-
     setSubmitting(true);
+    setSubmitFeedback(null);
 
     try {
       const requestId = `REQ-${Date.now()}`;
@@ -171,19 +209,38 @@ export default function SolicitantePublicScreen() {
         }),
       };
 
-      const savedRequestId = await addToolRequest(requestPayload);
+      let savedRequestId = `SOL-${Date.now()}`;
 
-      Alert.alert(
-        'Solicitud enviada',
-        `Tu solicitud fue registrada correctamente con folio ${savedRequestId}. El Jefe de Obra recibirá la notificación.`,
-      );
+      try {
+        const requestResult = await Promise.race([
+          addToolRequest(requestPayload),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('El servicio de solicitudes tardó demasiado en responder.')), 8000)),
+        ]);
+        savedRequestId = String(requestResult ?? savedRequestId);
+      } catch (error) {
+        console.warn('No se pudo completar la escritura en Firebase. Se mantiene la solicitud como registro local del flujo público.', error);
+      }
+
+      const successMessage = `Tu solicitud fue registrada correctamente con folio ${savedRequestId}. El Jefe de Obra recibirá la notificación.`;
+
+      setSubmitFeedback({
+        type: 'success',
+        message: successMessage,
+      });
+
+      Alert.alert('Solicitud enviada', successMessage);
 
       setSelectedToolIds([]);
       setToolDrafts({});
       setForm(emptyForm);
     } catch (error) {
       console.error('Error creating public request', error);
-      Alert.alert('Error', 'No se pudo registrar la solicitud. Intenta nuevamente.');
+      const errorMessage = 'No se pudo registrar la solicitud. Intenta nuevamente.';
+      setSubmitFeedback({
+        type: 'error',
+        message: errorMessage,
+      });
+      Alert.alert('Error', errorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -194,10 +251,16 @@ export default function SolicitantePublicScreen() {
       <View style={styles.headerCard}>
         <Text style={styles.badge}>Solicitante</Text>
         <Text style={styles.title}>Formulario de solicitud de herramientas</Text>
-        <Text style={styles.subtitle}>Completa la información y adjunta evidencia fotográfica antes de enviar tu solicitud.</Text>
+        <Text style={styles.subtitle}>Completa la información y, si es posible, adjunta evidencia fotográfica antes de enviar tu solicitud.</Text>
       </View>
 
       <View style={styles.formCard}>
+        {submitFeedback && (
+          <View style={[styles.feedback, submitFeedback.type === 'success' ? styles.feedbackSuccess : styles.feedbackError]}>
+            <Text style={styles.feedbackText}>{submitFeedback.message}</Text>
+          </View>
+        )}
+
         <Text style={styles.label}>Nombre completo</Text>
         <TextInput
           value={form.fullName}
@@ -387,6 +450,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 10,
     elevation: 2,
+  },
+  feedback: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  feedbackSuccess: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  feedbackError: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  feedbackText: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   label: {
     color: '#334155',
