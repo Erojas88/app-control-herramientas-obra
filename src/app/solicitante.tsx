@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from 'expo-router';
 import { addToolRequest, getTools } from '../services/firebaseService';
 import { uploadToolEvidence } from '../services/storageService';
 import type { Tool, ToolRequest } from '../types';
@@ -13,33 +15,70 @@ type ToolDraft = {
   photoUrls: string[];
 };
 
-const emptyForm = {
+const getTodayDate = () => new Date().toISOString().slice(0, 10);
+
+const buildEmptyForm = () => ({
   fullName: '',
   company: '',
   projectName: '',
   purpose: '',
   workArea: '',
-  dueDate: '',
+  dueDate: getTodayDate(),
   quantity: '1',
   training: 'yes',
-};
+});
 
 export default function SolicitantePublicScreen() {
   const [toolCatalog, setToolCatalog] = useState<Tool[]>([]);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
   const [toolDrafts, setToolDrafts] = useState<Record<string, ToolDraft>>({});
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(buildEmptyForm);
+  const [loadingTools, setLoadingTools] = useState(true);
+  const [toolLoadError, setToolLoadError] = useState<string | null>(null);
+  const [showDueDatePicker, setShowDueDatePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    const loadTools = async () => {
-      const tools = await getTools();
-      setToolCatalog(tools);
-    };
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
 
-    loadTools();
-  }, []);
+      const loadTools = async () => {
+        try {
+          setLoadingTools(true);
+          setToolLoadError(null);
+          const tools = await getTools();
+
+          if (!active) {
+            return;
+          }
+
+          setToolCatalog(tools);
+          if (!tools.length) {
+            setToolLoadError('No hay herramientas disponibles en este momento. Intenta nuevamente más tarde.');
+          }
+        } catch (error) {
+          console.warn('No se pudieron cargar las herramientas del solicitante.', error);
+          if (!active) {
+            return;
+          }
+
+          setToolCatalog([]);
+          setToolLoadError('Hubo un problema al cargar las herramientas. Por favor intenta nuevamente.');
+        } finally {
+          if (active) {
+            setLoadingTools(false);
+          }
+        }
+      };
+
+      void loadTools();
+
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const availableTools = useMemo(
     () => toolCatalog.filter((tool) => tool.status === 'available'),
@@ -232,7 +271,7 @@ export default function SolicitantePublicScreen() {
 
       setSelectedToolIds([]);
       setToolDrafts({});
-      setForm(emptyForm);
+      setForm(buildEmptyForm());
     } catch (error) {
       console.error('Error creating public request', error);
       const errorMessage = 'No se pudo registrar la solicitud. Intenta nuevamente.';
@@ -286,20 +325,26 @@ export default function SolicitantePublicScreen() {
         />
 
         <Text style={styles.label}>Herramientas disponibles</Text>
-        <View style={styles.chipGroup}>
-          {availableTools.map((tool) => {
-            const selected = selectedToolIds.includes(tool.id);
-            return (
-              <Pressable
-                key={tool.id}
-                onPress={() => toggleTool(tool.id)}
-                style={[styles.chip, selected && styles.chipSelected]}
-              >
-                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{tool.name}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {loadingTools ? (
+          <Text style={styles.helperText}>Cargando herramientas disponibles...</Text>
+        ) : toolLoadError ? (
+          <Text style={styles.helperError}>{toolLoadError}</Text>
+        ) : (
+          <View style={styles.chipGroup}>
+            {availableTools.map((tool) => {
+              const selected = selectedToolIds.includes(tool.id);
+              return (
+                <Pressable
+                  key={tool.id}
+                  onPress={() => toggleTool(tool.id)}
+                  style={[styles.chip, selected && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{tool.name}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {selectedToolIds.length > 0 && (
           <View style={styles.toolDetailsWrap}>
@@ -376,12 +421,32 @@ export default function SolicitantePublicScreen() {
         />
 
         <Text style={styles.label}>Fecha estimada de devolución</Text>
-        <TextInput
-          value={form.dueDate}
-          onChangeText={(value) => setForm((current) => ({ ...current, dueDate: value }))}
-          style={styles.input}
-          placeholder="2026-10-30"
-        />
+        <Pressable style={styles.dateInput} onPress={() => setShowDueDatePicker(true)}>
+          <Text style={[styles.dateInputText, !form.dueDate && styles.placeholderText]}>
+            {form.dueDate ? new Date(`${form.dueDate}T12:00:00`).toLocaleDateString('es-MX', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+            }) : 'Selecciona una fecha'}
+          </Text>
+        </Pressable>
+        {showDueDatePicker && (
+          <DateTimePicker
+            value={form.dueDate ? new Date(`${form.dueDate}T12:00:00`) : new Date()}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            minimumDate={new Date()}
+            onChange={(_, selectedDate) => {
+              setShowDueDatePicker(false);
+              if (selectedDate) {
+                const isoDate = new Date(selectedDate.getTime() - selectedDate.getTimezoneOffset() * 60000)
+                  .toISOString()
+                  .slice(0, 10);
+                setForm((current) => ({ ...current, dueDate: isoDate }));
+              }
+            }}
+          />
+        )}
 
         <Text style={styles.label}>¿Ha recibido capacitación?</Text>
         <View style={styles.rowOptions}>
@@ -487,6 +552,40 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: '#fff',
     fontSize: 14,
+  },
+  helperText: {
+    color: '#475569',
+    fontSize: 13,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  helperError: {
+    color: '#b91c1c',
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    marginTop: 8,
+  },
+  dateInput: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+  },
+  dateInputText: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  placeholderText: {
+    color: '#94a3b8',
   },
   chipGroup: {
     flexDirection: 'row',
