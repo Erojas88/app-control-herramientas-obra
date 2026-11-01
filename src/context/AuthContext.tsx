@@ -1,7 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { doc, getDoc } from 'firebase/firestore';
 import type { UserProfile, UserRole } from '../types';
-import { logout } from '../services/firebaseAuthService';
+import { logout, observeAuthState } from '../services/firebaseAuthService';
+import { auth, db, isFirebaseConfigured } from '../config/firebase';
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -15,6 +17,45 @@ type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const normalizeRole = (role?: string): UserProfile['role'] => {
+  const normalized = (role ?? 'solicitante').toLowerCase();
+
+  if (normalized === 'jefe' || normalized === 'jefeobra' || normalized === 'jefe_obra') {
+    return 'jefe_obra';
+  }
+
+  if (normalized === 'admin') {
+    return 'admin';
+  }
+
+  return 'solicitante';
+};
+
+const restoreSessionUser = async (uid: string): Promise<UserProfile | null> => {
+  if (!db || !isFirebaseConfigured) {
+    return null;
+  }
+
+  const userDoc = await getDoc(doc(db, 'users', uid));
+
+  if (!userDoc.exists()) {
+    return null;
+  }
+
+  const firestoreUser = userDoc.data() as Partial<UserProfile> & { role?: string; rol?: string; name?: string; fullName?: string };
+
+  return {
+    uid: firestoreUser.uid ?? uid,
+    fullName: firestoreUser.fullName ?? firestoreUser.name ?? 'Usuario',
+    role: normalizeRole(firestoreUser.role ?? firestoreUser.rol),
+    company: firestoreUser.company ?? 'BuildPro',
+    position: firestoreUser.position ?? 'Trabajador',
+    email: firestoreUser.email ?? '',
+    active: firestoreUser.active ?? true,
+    projectName: firestoreUser.projectName ?? 'Proyecto San Martín',
+  };
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<UserProfile | null>(null);
@@ -32,9 +73,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await logout();
   }, [clearSessionState]);
 
+  const setUser = useCallback((nextUser: UserProfile) => {
+    setUserState(nextUser);
+    clearSessionState();
+  }, [clearSessionState]);
+
   const trackSessionActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
   }, []);
+
+  useEffect(() => {
+    if (!auth || !isFirebaseConfigured) {
+      return;
+    }
+
+    const unsubscribe = observeAuthState(async (firebaseUser) => {
+      if (!firebaseUser) {
+        setUserState(null);
+        return;
+      }
+
+      try {
+        const restoredUser = await restoreSessionUser(firebaseUser.uid);
+        setUserState(restoredUser ?? null);
+        if (restoredUser) {
+          clearSessionState();
+        }
+      } catch {
+        setUserState(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [clearSessionState]);
 
   useEffect(() => {
     if (!user) {
@@ -50,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (idleMs >= SESSION_TIMEOUT_MS || totalMs >= MAX_SESSION_MS) {
         Alert.alert('Sesión cerrada', 'La sesión caducó por inactividad o por tiempo máximo permitido.');
-        finishSession();
+        void finishSession();
       }
     }, 15000);
 

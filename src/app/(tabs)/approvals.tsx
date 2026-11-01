@@ -42,7 +42,28 @@ export default function ApprovalsScreen() {
     [requests],
   );
 
+  const confirmDecision = (requestId: string, itemId: string, decision: 'approved' | 'rejected') => {
+    console.log('confirmDecision invoked', { requestId, itemId, decision });
+    const decisionText = decision === 'approved' ? 'aprobar' : 'rechazar';
+
+    Alert.alert(
+      'Confirmar decisión',
+      `¿Deseas ${decisionText} esta solicitud?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: `Sí, ${decisionText}`,
+          style: decision === 'approved' ? 'default' : 'destructive',
+          onPress: () => {
+            void handleDecision(requestId, itemId, decision);
+          },
+        },
+      ],
+    );
+  };
+
   const handleDecision = async (requestId: string, itemId: string, decision: 'approved' | 'rejected') => {
+    console.log('handleDecision invoked', { requestId, itemId, decision, user: user?.email });
     if (!user) {
       Alert.alert('Acceso restringido', 'Debes iniciar sesión como jefe de obra.');
       return;
@@ -201,13 +222,13 @@ export default function ApprovalsScreen() {
                 <View style={styles.buttonRow}>
                   <Pressable
                     style={[styles.actionButton, styles.approveButton, normalizeApprovalStatus(entry.approvalStatus) === 'approved' && styles.actionSelectedApproved]}
-                    onPress={() => handleDecision(item.id, entry.id, 'approved')}
+                    onPress={() => confirmDecision(item.id, entry.id, 'approved')}
                   >
                     <Text style={styles.actionText}>Aprobar</Text>
                   </Pressable>
                   <Pressable
                     style={[styles.actionButton, styles.rejectButton, normalizeApprovalStatus(entry.approvalStatus) === 'rejected' && styles.actionSelectedRejected]}
-                    onPress={() => handleDecision(item.id, entry.id, 'rejected')}
+                    onPress={() => confirmDecision(item.id, entry.id, 'rejected')}
                   >
                     <Text style={styles.actionText}>Rechazar</Text>
                   </Pressable>
