@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
 import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { getPendingRequestsForApproval, normalizeApprovalStatus, updateToolRequestItemApproval } from '../../services/firebaseService';
 import type { ToolRequest, ToolRequestItem } from '../../types';
@@ -24,19 +22,19 @@ export default function ApprovalsScreen() {
       }
     };
 
-    if (user?.role === 'jefe_obra') {
-      void loadPending();
-
-      if (!db) {
-        return;
-      }
-
-      const unsubscribe = onSnapshot(collection(db, 'toolRequests'), () => {
-        void loadPending();
-      });
-
-      return () => unsubscribe();
+    if (user?.role !== 'jefe_obra') {
+      return;
     }
+
+    void loadPending();
+
+    const refreshInterval = setInterval(() => {
+      void loadPending();
+    }, 5000);
+
+    return () => {
+      clearInterval(refreshInterval);
+    };
   }, [user?.role]);
 
   const pendingRequests = useMemo(
@@ -52,36 +50,47 @@ export default function ApprovalsScreen() {
 
     const nextComment = comments[itemId] ?? '';
 
-    await updateToolRequestItemApproval(requestId, itemId, decision, user.fullName, nextComment);
+    try {
+      await updateToolRequestItemApproval(requestId, itemId, decision, user.fullName, nextComment);
 
-    setRequests((current) =>
-      current.map((request) => {
-        if (request.id !== requestId) return request;
+      setRequests((current) =>
+        current
+          .map((request) => {
+            if (request.id !== requestId) return request;
 
-        const updatedItems = request.items.map((item) => {
-          if (item.id !== itemId) return item;
+            const updatedItems = request.items.map((item) => {
+              if (item.id !== itemId) return item;
 
-          return {
-            ...item,
-            approvalStatus: decision,
-            approvalComment: nextComment || undefined,
-            notes: nextComment || item.notes,
-          };
-        });
+              return {
+                ...item,
+                approvalStatus: decision,
+                approvalComment: nextComment || undefined,
+                notes: nextComment || item.notes,
+              };
+            });
 
-        const allDone = updatedItems.every((item) => item.approvalStatus !== 'pending');
-        const allApproved = updatedItems.every((item) => item.approvalStatus === 'approved');
-        const allRejected = updatedItems.every((item) => item.approvalStatus === 'rejected');
+            const allDone = updatedItems.every((item) => normalizeApprovalStatus(item.approvalStatus) !== 'pending');
+            const allApproved = updatedItems.every((item) => normalizeApprovalStatus(item.approvalStatus) === 'approved');
+            const allRejected = updatedItems.every((item) => normalizeApprovalStatus(item.approvalStatus) === 'rejected');
+            const nextStatus: ToolRequest['status'] = allDone ? (allApproved ? 'approved' : allRejected ? 'rejected' : 'pending') : 'pending';
 
-        return {
-          ...request,
-          status: allDone ? (allApproved ? 'approved' : allRejected ? 'rejected' : 'pending') : 'pending',
-          items: updatedItems,
-        };
-      }),
-    );
+            return {
+              ...request,
+              status: nextStatus,
+              items: updatedItems,
+            };
+          })
+          .filter((request) => request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
+      );
 
-    Alert.alert('Decisión registrada', `La herramienta fue ${decision === 'approved' ? 'aprobada' : 'rechazada'}. El solicitante recibirá la notificación correspondiente.`);
+      const refreshed = await getPendingRequestsForApproval();
+      setRequests(refreshed);
+
+      Alert.alert('Decisión registrada', `La herramienta fue ${decision === 'approved' ? 'aprobada' : 'rechazada'}. El solicitante recibirá la notificación correspondiente.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo registrar la decisión de aprobación.';
+      Alert.alert('No se pudo actualizar la solicitud', message);
+    }
   };
 
   if (!user || user.role !== 'jefe_obra') {

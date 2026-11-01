@@ -80,6 +80,10 @@ export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) =
     return 'rejected';
   }
 
+  if (approvalStates.some((status) => status === 'pending')) {
+    return 'pending';
+  }
+
   return 'pending';
 };
 
@@ -319,10 +323,12 @@ export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> =>
         return false;
       }
 
-      const hasPendingItems = request.items.some((item) => item.approvalStatus === 'pending');
-      const hasActiveItems = request.items.some((item) => item.approvalStatus === 'approved' || item.approvalStatus === 'rejected' || item.approvalStatus === 'pending');
-      return hasPendingItems && hasActiveItems;
-    });
+      const hasPendingItems = request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending');
+      const hasAnyKnownState = request.items.some((item) => ['pending', 'approved', 'rejected'].includes(normalizeApprovalStatus(item.approvalStatus)));
+
+      return hasPendingItems && hasAnyKnownState;
+    })
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
 
   return requests;
 };
@@ -365,8 +371,22 @@ export const getDashboardSummary = async () => {
       .map((item) => item.toolId),
   );
 
+  const pendingToolIds = new Set(
+    requests
+      .flatMap((request) => request.items)
+      .filter((item) => item.toolId && normalizeApprovalStatus(item.approvalStatus) === 'pending')
+      .map((item) => item.toolId),
+  );
+
+  const rejectedToolIds = new Set(
+    requests
+      .flatMap((request) => request.items)
+      .filter((item) => item.toolId && normalizeApprovalStatus(item.approvalStatus) === 'rejected')
+      .map((item) => item.toolId),
+  );
+
   const totalInventory = tools.length;
-  const available = tools.filter((tool) => tool.status === 'available' && !approvedToolIds.has(tool.id)).length;
+  const available = tools.filter((tool) => tool.status === 'available' && !approvedToolIds.has(tool.id) && !pendingToolIds.has(tool.id)).length;
   const loaned = tools.filter((tool) => tool.status === 'loaned' || approvedToolIds.has(tool.id)).length;
   const damaged = tools.filter((tool) => tool.status === 'maintenance' || tool.status === 'out_of_service').length;
 
