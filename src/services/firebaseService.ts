@@ -51,12 +51,26 @@ const normalizeToolDoc = (toolId: string, data: any): Tool => ({
   updatedAt: data.updatedAt ?? new Date().toISOString(),
 });
 
+export const normalizeApprovalStatus = (value: unknown): 'pending' | 'approved' | 'rejected' => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+
+  if (normalized === 'approved' || normalized === 'aprobado') {
+    return 'approved';
+  }
+
+  if (normalized === 'rejected' || normalized === 'rechazado') {
+    return 'rejected';
+  }
+
+  return 'pending';
+};
+
 export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) => {
   if (!items.length) {
     return 'pending';
   }
 
-  const approvalStates = items.map((item) => item.approvalStatus ?? 'pending');
+  const approvalStates = items.map((item) => normalizeApprovalStatus(item.approvalStatus));
 
   if (approvalStates.every((status) => status === 'approved')) {
     return 'approved';
@@ -82,7 +96,7 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
     dueDate: item.dueDate ?? '',
     training: item.training ?? 'yes',
     condition: item.condition ?? 'Good',
-    approvalStatus: item.approvalStatus ?? 'pending',
+    approvalStatus: normalizeApprovalStatus(item.approvalStatus ?? 'pending'),
     approvalComment: item.approvalComment ?? item.comment ?? '',
     approverName: item.approverName ?? undefined,
     notes: item.notes ?? '',
@@ -344,14 +358,21 @@ export const getDashboardSummary = async () => {
   const deliveries = deliverySnapshot.docs.map((docSnap) => docSnap.data());
   const returns = returnSnapshot.docs.map((docSnap) => docSnap.data());
 
+  const approvedToolIds = new Set(
+    requests
+      .flatMap((request) => request.items)
+      .filter((item) => item.toolId && normalizeApprovalStatus(item.approvalStatus) === 'approved')
+      .map((item) => item.toolId),
+  );
+
   const totalInventory = tools.length;
-  const available = tools.filter((tool) => tool.status === 'available').length;
-  const loaned = tools.filter((tool) => tool.status === 'loaned').length;
+  const available = tools.filter((tool) => tool.status === 'available' && !approvedToolIds.has(tool.id)).length;
+  const loaned = tools.filter((tool) => tool.status === 'loaned' || approvedToolIds.has(tool.id)).length;
   const damaged = tools.filter((tool) => tool.status === 'maintenance' || tool.status === 'out_of_service').length;
 
-  const pending = requests.filter((request) => request.status === 'pending').length;
-  const approved = requests.filter((request) => request.status === 'approved').length;
-  const rejected = requests.filter((request) => request.status === 'rejected').length;
+  const pending = requests.filter((request) => deriveRequestStatus(request.items) === 'pending').length;
+  const approved = requests.filter((request) => deriveRequestStatus(request.items) === 'approved').length;
+  const rejected = requests.filter((request) => deriveRequestStatus(request.items) === 'rejected').length;
 
   const today = new Date();
   const overdue = requests.filter((request) => {
@@ -490,6 +511,16 @@ export const updateToolRequestItemApproval = async (
     status: requestStatus,
     updatedAt: new Date().toISOString(),
   });
+
+  if (decision === 'approved') {
+    const targetTool = nextItems.find((item) => item.id === itemId);
+    if (targetTool?.toolId) {
+      await updateDoc(doc(db, 'tools', targetTool.toolId), {
+        status: 'loaned',
+        updatedAt: new Date().toISOString(),
+      }).catch(() => undefined);
+    }
+  }
 
   const targetTool = nextItems.find((item) => item.id === itemId);
   const requesterUid = currentRequest.requesterUid as string | undefined;

@@ -3,7 +3,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { getPendingRequestsForApproval, updateToolRequestItemApproval } from '../../services/firebaseService';
+import { getPendingRequestsForApproval, normalizeApprovalStatus, updateToolRequestItemApproval } from '../../services/firebaseService';
 import type { ToolRequest, ToolRequestItem } from '../../types';
 
 export default function ApprovalsScreen() {
@@ -40,7 +40,7 @@ export default function ApprovalsScreen() {
   }, [user?.role]);
 
   const pendingRequests = useMemo(
-    () => requests.filter((request) => request.items.some((item) => item.approvalStatus === 'pending')),
+    () => requests.filter((request) => request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
     [requests],
   );
 

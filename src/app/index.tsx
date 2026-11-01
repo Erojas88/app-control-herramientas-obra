@@ -7,7 +7,7 @@ import { getRoleFromDeepLink } from '../utils/quickAccess';
 
 export default function Index() {
   const router = useRouter();
-  const { user, signIn } = useAuth();
+  const { user } = useAuth();
   const [isResolving, setIsResolving] = useState(true);
 
   useEffect(() => {
@@ -15,8 +15,7 @@ export default function Index() {
       const role = getRoleFromDeepLink(url);
 
       if (role === 'solicitante') {
-        signIn('solicitante');
-        router.replace('/(tabs)/dashboard');
+        router.replace('/solicitante');
         return;
       }
 
@@ -46,7 +45,7 @@ export default function Index() {
     return () => {
       subscription.remove();
     };
-  }, [router, signIn, user]);
+  }, [router, user]);
 
   if (isResolving) {
     return (

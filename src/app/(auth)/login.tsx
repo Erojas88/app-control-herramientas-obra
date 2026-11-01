@@ -7,9 +7,9 @@ import { buildRequesterAccessUrl } from '../../utils/quickAccess';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setUser, signIn } = useAuth();
-  const [email, setEmail] = useState('solicitante@demo.com');
-  const [password, setPassword] = useState('demo1234');
+  const { setUser } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -23,11 +23,6 @@ export default function LoginScreen() {
     }
 
     setUser(result.user);
-    router.replace('/(tabs)/dashboard');
-  };
-
-  const handleQuickSolicitanteAccess = () => {
-    signIn('solicitante');
     router.replace('/(tabs)/dashboard');
   };
 
@@ -70,10 +65,6 @@ export default function LoginScreen() {
 
           <Pressable style={[styles.button, loading && styles.buttonDisabled]} disabled={loading} onPress={handleLogin}>
             <Text style={styles.buttonText}>{loading ? 'Ingresando...' : 'Ingresar'}</Text>
-          </Pressable>
-
-          <Pressable style={styles.secondaryButton} onPress={handleQuickSolicitanteAccess}>
-            <Text style={styles.secondaryButtonText}>Entrar como solicitante</Text>
           </Pressable>
 
           <Pressable style={[styles.secondaryButton, styles.webButton]} onPress={handlePublicSolicitanteAccess}>

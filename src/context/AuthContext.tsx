@@ -6,39 +6,6 @@ import { logout } from '../services/firebaseAuthService';
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_SESSION_MS = 12 * 60 * 60 * 1000;
 
-const demoUsers: Record<string, UserProfile> = {
-  solicitante: {
-    uid: 'demo-solicitante',
-    fullName: 'María López',
-    role: 'solicitante',
-    company: 'BuildPro',
-    position: 'Soldador',
-    email: 'solicitante@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-  jefe_obra: {
-    uid: 'demo-jefe',
-    fullName: 'Luis Gómez',
-    role: 'jefe_obra',
-    company: 'BuildPro',
-    position: 'Jefe de Obra',
-    email: 'jefe@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-  admin: {
-    uid: 'demo-admin',
-    fullName: 'Ana Torres',
-    role: 'admin',
-    company: 'BuildPro',
-    position: 'Administrador',
-    email: 'admin@demo.com',
-    active: true,
-    projectName: 'Proyecto San Martín',
-  },
-};
-
 type AuthContextType = {
   user: UserProfile | null;
   signIn: (role: UserRole) => void;
@@ -104,12 +71,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       user,
-      signIn: (role: UserRole) => {
-        const demoUser = demoUsers[role];
-        if (demoUser) {
-          setUserState(demoUser);
-          clearSessionState();
-        }
+      signIn: (_role: UserRole) => {
+        // Se fuerza el uso de Firebase, sin usuarios demo ni fallback en memoria.
       },
       setUser: (nextUser: UserProfile) => {
         setUserState(nextUser);
