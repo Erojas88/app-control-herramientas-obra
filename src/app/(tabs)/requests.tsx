@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { addToolRequest, getRequestsByUser, getTools } from '../../services/firebaseService';
+import { addToolRequest, getRequestsByUser, getTools, normalizeApprovalStatus } from '../../services/firebaseService';
 import type { Tool, ToolRequest } from '../../types';
 
 const emptyForm = {
@@ -259,9 +259,10 @@ export default function RequestsScreen() {
             <Text style={styles.meta}>Fecha: {item.createdAt}</Text>
 
             {item.items.map((entry) => {
-              const approvalLabel = entry.approvalStatus === 'approved'
+              const normalizedApproval = normalizeApprovalStatus(entry.approvalStatus);
+              const approvalLabel = normalizedApproval === 'approved'
                 ? 'Aprobada'
-                : entry.approvalStatus === 'rejected'
+                : normalizedApproval === 'rejected'
                   ? 'Rechazada'
                   : 'Pendiente';
 
@@ -275,8 +276,8 @@ export default function RequestsScreen() {
                   <Text style={[
                     styles.itemText,
                     styles.approvalState,
-                    entry.approvalStatus === 'approved' ? styles.approvedState :
-                    entry.approvalStatus === 'rejected' ? styles.rejectedState :
+                    normalizedApproval === 'approved' ? styles.approvedState :
+                    normalizedApproval === 'rejected' ? styles.rejectedState :
                     styles.pendingState,
                   ]}>Estado de aprobación: {approvalLabel}</Text>
                 </View>

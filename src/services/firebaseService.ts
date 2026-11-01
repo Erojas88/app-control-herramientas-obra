@@ -65,6 +65,9 @@ export const normalizeApprovalStatus = (value: unknown): 'pending' | 'approved' 
   return 'pending';
 };
 
+const hasApprovalStatus = (value: unknown, expected: 'pending' | 'approved' | 'rejected') =>
+  normalizeApprovalStatus(value) === expected;
+
 export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) => {
   if (!items.length) {
     return 'pending';
@@ -81,6 +84,10 @@ export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) =
   }
 
   if (approvalStates.some((status) => status === 'pending')) {
+    return 'pending';
+  }
+
+  if (approvalStates.some((status) => status === 'approved')) {
     return 'pending';
   }
 
@@ -398,7 +405,7 @@ export const getDashboardSummary = async () => {
   const overdue = requests.filter((request) => {
     if (request.status !== 'approved') return false;
 
-    return request.items.some((item) => item.dueDate && new Date(item.dueDate) < today && item.approvalStatus === 'approved');
+    return request.items.some((item) => item.dueDate && new Date(item.dueDate) < today && normalizeApprovalStatus(item.approvalStatus) === 'approved');
   }).length;
 
   const toolUsage = new Map<string, number>();
@@ -451,7 +458,11 @@ export const getApprovedRequestsForDelivery = async (): Promise<ToolRequest[]> =
 
   return snapshot.docs
     .map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()))
-    .filter((request) => request.status === 'approved' || request.items.some((item) => item.approvalStatus === 'approved'));
+    .filter((request) => {
+      const hasApprovedRequest = request.status === 'approved';
+      const hasApprovedItem = request.items.some((item) => hasApprovalStatus(item.approvalStatus, 'approved'));
+      return hasApprovedRequest || hasApprovedItem;
+    });
 };
 
 export const addToolRequest = async (payload: Partial<ToolRequest>) => {

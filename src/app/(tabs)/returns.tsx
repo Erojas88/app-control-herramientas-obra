@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { getApprovedRequestsForDelivery, recordToolReturn } from '../../services/firebaseService';
+import { getApprovedRequestsForDelivery, normalizeApprovalStatus, recordToolReturn } from '../../services/firebaseService';
 import type { ToolRequest } from '../../types';
 
 export default function ReturnsScreen() {
@@ -23,7 +23,7 @@ export default function ReturnsScreen() {
     () =>
       requests.flatMap((request) =>
         request.items
-          .filter((item) => item.approvalStatus === 'approved')
+          .filter((item) => normalizeApprovalStatus(item.approvalStatus) === 'approved')
           .map((item) => ({ request, item })),
       ),
     [requests],

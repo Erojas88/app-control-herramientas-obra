@@ -200,22 +200,22 @@ export default function ApprovalsScreen() {
 
                 <View style={styles.buttonRow}>
                   <Pressable
-                    style={[styles.actionButton, styles.approveButton, entry.approvalStatus === 'approved' && styles.actionSelectedApproved]}
+                    style={[styles.actionButton, styles.approveButton, normalizeApprovalStatus(entry.approvalStatus) === 'approved' && styles.actionSelectedApproved]}
                     onPress={() => handleDecision(item.id, entry.id, 'approved')}
                   >
                     <Text style={styles.actionText}>Aprobar</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.actionButton, styles.rejectButton, entry.approvalStatus === 'rejected' && styles.actionSelectedRejected]}
+                    style={[styles.actionButton, styles.rejectButton, normalizeApprovalStatus(entry.approvalStatus) === 'rejected' && styles.actionSelectedRejected]}
                     onPress={() => handleDecision(item.id, entry.id, 'rejected')}
                   >
                     <Text style={styles.actionText}>Rechazar</Text>
                   </Pressable>
                 </View>
 
-                {entry.approvalStatus !== 'pending' && (
-                  <Text style={[styles.approvalState, entry.approvalStatus === 'approved' ? styles.approvedState : styles.rejectedState]}>
-                    {entry.approvalStatus === 'approved' ? 'Aprobado' : 'Rechazado'}
+                {normalizeApprovalStatus(entry.approvalStatus) !== 'pending' && (
+                  <Text style={[styles.approvalState, normalizeApprovalStatus(entry.approvalStatus) === 'approved' ? styles.approvedState : styles.rejectedState]}>
+                    {normalizeApprovalStatus(entry.approvalStatus) === 'approved' ? 'Aprobado' : 'Rechazado'}
                   </Text>
                 )}
               </View>
