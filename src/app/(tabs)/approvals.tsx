@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { getPendingRequestsForApproval, normalizeApprovalStatus, updateToolRequestItemApproval } from '../../services/firebaseService';
+import { getPendingRequestsForApproval, normalizeApprovalStatus, normalizeRequestStatus, updateToolRequestItemApproval } from '../../services/firebaseService';
 import type { ToolRequest, ToolRequestItem } from '../../types';
 
 export default function ApprovalsScreen() {
@@ -9,6 +9,12 @@ export default function ApprovalsScreen() {
   const [requests, setRequests] = useState<ToolRequest[]>([]);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [selectedPhoto, setSelectedPhoto] = useState<{ urls: string[]; index: number } | null>(null);
+  const [processingDecisionIds, setProcessingDecisionIds] = useState<Record<string, boolean>>({});
+  const processingDecisionIdsRef = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    processingDecisionIdsRef.current = processingDecisionIds;
+  }, [processingDecisionIds]);
 
   useEffect(() => {
     const loadPending = async () => {
@@ -38,13 +44,30 @@ export default function ApprovalsScreen() {
   }, [user?.role]);
 
   const pendingRequests = useMemo(
-    () => requests.filter((request) => request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
+    () => requests.filter((request) => {
+      const status = normalizeRequestStatus(request.status);
+      return status === 'pending' && request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending');
+    }),
     [requests],
   );
 
   const confirmDecision = (requestId: string, itemId: string, decision: 'approved' | 'rejected') => {
+    const decisionKey = `${requestId}:${itemId}`;
+    if (processingDecisionIdsRef.current[decisionKey]) {
+      return;
+    }
+
     console.log('confirmDecision invoked', { requestId, itemId, decision });
     const decisionText = decision === 'approved' ? 'aprobar' : 'rechazar';
+
+    const runDecision = () => {
+      void handleDecision(requestId, itemId, decision);
+    };
+
+    if (Platform.OS === 'web') {
+      runDecision();
+      return;
+    }
 
     Alert.alert(
       'Confirmar decisión',
@@ -54,16 +77,22 @@ export default function ApprovalsScreen() {
         {
           text: `Sí, ${decisionText}`,
           style: decision === 'approved' ? 'default' : 'destructive',
-          onPress: () => {
-            void handleDecision(requestId, itemId, decision);
-          },
+          onPress: runDecision,
         },
       ],
     );
   };
 
   const handleDecision = async (requestId: string, itemId: string, decision: 'approved' | 'rejected') => {
+    const decisionKey = `${requestId}:${itemId}`;
+    if (processingDecisionIdsRef.current[decisionKey] || !user) {
+      return;
+    }
+
     console.log('handleDecision invoked', { requestId, itemId, decision, user: user?.email });
+
+    setProcessingDecisionIds((current) => ({ ...current, [decisionKey]: true }));
+
     if (!user) {
       Alert.alert('Acceso restringido', 'Debes iniciar sesión como jefe de obra.');
       return;
@@ -101,7 +130,7 @@ export default function ApprovalsScreen() {
               items: updatedItems,
             };
           })
-          .filter((request) => request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
+          .filter((request) => normalizeRequestStatus(request.status) === 'pending' && request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
       );
 
       const refreshed = await getPendingRequestsForApproval();
@@ -111,6 +140,12 @@ export default function ApprovalsScreen() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo registrar la decisión de aprobación.';
       Alert.alert('No se pudo actualizar la solicitud', message);
+    } finally {
+      setProcessingDecisionIds((current) => {
+        const next = { ...current };
+        delete next[decisionKey];
+        return next;
+      });
     }
   };
 
@@ -221,13 +256,25 @@ export default function ApprovalsScreen() {
 
                 <View style={styles.buttonRow}>
                   <Pressable
-                    style={[styles.actionButton, styles.approveButton, normalizeApprovalStatus(entry.approvalStatus) === 'approved' && styles.actionSelectedApproved]}
+                    disabled={processingDecisionIds[`${item.id}:${entry.id}`]}
+                    style={[
+                      styles.actionButton,
+                      styles.approveButton,
+                      normalizeApprovalStatus(entry.approvalStatus) === 'approved' && styles.actionSelectedApproved,
+                      processingDecisionIds[`${item.id}:${entry.id}`] && styles.actionButtonDisabled,
+                    ]}
                     onPress={() => confirmDecision(item.id, entry.id, 'approved')}
                   >
                     <Text style={styles.actionText}>Aprobar</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.actionButton, styles.rejectButton, normalizeApprovalStatus(entry.approvalStatus) === 'rejected' && styles.actionSelectedRejected]}
+                    disabled={processingDecisionIds[`${item.id}:${entry.id}`]}
+                    style={[
+                      styles.actionButton,
+                      styles.rejectButton,
+                      normalizeApprovalStatus(entry.approvalStatus) === 'rejected' && styles.actionSelectedRejected,
+                      processingDecisionIds[`${item.id}:${entry.id}`] && styles.actionButtonDisabled,
+                    ]}
                     onPress={() => confirmDecision(item.id, entry.id, 'rejected')}
                   >
                     <Text style={styles.actionText}>Rechazar</Text>
@@ -453,6 +500,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: 'center',
+  },
+  actionButtonDisabled: {
+    opacity: 0.6,
   },
   approveButton: {
     backgroundColor: '#16a34a',

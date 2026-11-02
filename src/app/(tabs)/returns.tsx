@@ -23,7 +23,7 @@ export default function ReturnsScreen() {
     () =>
       requests.flatMap((request) =>
         request.items
-          .filter((item) => normalizeApprovalStatus(item.approvalStatus) === 'approved')
+          .filter((item) => !item.returnedAt && normalizeApprovalStatus(item.approvalStatus) === 'approved')
           .map((item) => ({ request, item })),
       ),
     [requests],

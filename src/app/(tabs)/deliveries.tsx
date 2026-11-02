@@ -23,7 +23,7 @@ export default function DeliveriesScreen() {
     () =>
       requests.flatMap((request) =>
         request.items
-          .filter((item) => normalizeApprovalStatus(item.approvalStatus) === 'approved')
+          .filter((item) => !item.deliveredAt && !item.returnedAt && normalizeApprovalStatus(item.approvalStatus) === 'approved')
           .map((item) => ({ request, item })),
       ),
     [requests],
@@ -50,7 +50,18 @@ export default function DeliveriesScreen() {
 
       Alert.alert('Entrega registrada', `Se registró la entrega de ${item.toolName}.`);
       setObservations((current) => ({ ...current, [item.id]: '' }));
-      setRequests((current) => current.filter((entry) => entry.id !== request.id));
+      setRequests((current) =>
+        current
+          .map((entry) => {
+            if (entry.id !== request.id) return entry;
+
+            return {
+              ...entry,
+              items: entry.items.filter((entryItem) => entryItem.id !== item.id),
+            };
+          })
+          .filter((entry) => entry.items.length > 0),
+      );
     } catch (error) {
       Alert.alert('Error', 'No se pudo registrar la entrega.');
     } finally {

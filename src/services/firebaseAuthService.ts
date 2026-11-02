@@ -17,6 +17,35 @@ export type AuthResult = {
   error?: string;
 };
 
+const DEMO_USERS: Record<string, { password: string; user: UserProfile }> = {
+  'jefe@demo': {
+    password: 'demo1234',
+    user: {
+      uid: 'demo-jefe-obra',
+      fullName: 'Jefe de Obra Demo',
+      role: 'jefe_obra',
+      company: 'Constructora Demo',
+      position: 'Jefe de Obra',
+      email: 'jefe@demo',
+      active: true,
+      projectName: 'Proyecto Jardín Botánico',
+    },
+  },
+  'jefe@demo.com': {
+    password: 'demo1234',
+    user: {
+      uid: 'demo-jefe-obra',
+      fullName: 'Jefe de Obra Demo',
+      role: 'jefe_obra',
+      company: 'Constructora Demo',
+      position: 'Jefe de Obra',
+      email: 'jefe@demo.com',
+      active: true,
+      projectName: 'Proyecto Jardín Botánico',
+    },
+  },
+};
+
 const normalizeRole = (role?: string): UserProfile['role'] => {
   const normalized = (role ?? 'solicitante').toLowerCase();
 
@@ -82,6 +111,19 @@ export const registerWithEmailAndPassword = async (
 };
 
 export const loginWithEmailAndPassword = async (email: string, password: string): Promise<AuthResult> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const demoUser = DEMO_USERS[normalizedEmail] ?? DEMO_USERS[normalizedEmail.replace(/\.com$/, '')];
+
+  if (demoUser && password.trim() === demoUser.password) {
+    return {
+      ok: true,
+      user: {
+        ...demoUser.user,
+        email: normalizedEmail,
+      },
+    };
+  }
+
   if (!auth || !db || !isFirebaseConfigured) {
     return {
       ok: false,

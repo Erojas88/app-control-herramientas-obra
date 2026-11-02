@@ -65,6 +65,64 @@ export const normalizeApprovalStatus = (value: unknown): 'pending' | 'approved' 
   return 'pending';
 };
 
+export const normalizeRequestStatus = (value: unknown): ToolRequest['status'] => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+
+  if (normalized === 'approved' || normalized === 'aprobado') {
+    return 'approved';
+  }
+
+  if (normalized === 'rejected' || normalized === 'rechazado') {
+    return 'rejected';
+  }
+
+  return 'pending';
+};
+
+export const summarizeInventory = (
+  tools: Array<{ id?: string; status?: string }>,
+  requests: Array<{ status?: string; items?: Array<{ approvalStatus?: string; dueDate?: string; returnedAt?: string }> }>,
+) => {
+  const totalInventory = tools.length;
+  const available = tools.filter((tool) => normalizeToolStatus(tool.status) === 'available').length;
+  const loaned = tools.filter((tool) => normalizeToolStatus(tool.status) === 'loaned').length;
+  const damaged = tools.filter((tool) => {
+    const status = normalizeToolStatus(tool.status);
+    return status === 'maintenance' || status === 'out_of_service';
+  }).length;
+
+  const pending = requests.filter((request) => normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])) === 'pending').length;
+  const approved = requests.filter((request) => normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])) === 'approved').length;
+  const rejected = requests.filter((request) => normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])) === 'rejected').length;
+
+  const today = new Date();
+  const overdue = requests.filter((request) => {
+    const requestStatus = normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? []));
+    if (requestStatus !== 'approved') {
+      return false;
+    }
+
+    return (request.items ?? []).some((item) => {
+      if (!item.dueDate || normalizeApprovalStatus(item.approvalStatus) !== 'approved' || item.returnedAt) {
+        return false;
+      }
+
+      return new Date(item.dueDate) < today;
+    });
+  }).length;
+
+  return {
+    totalInventory,
+    available,
+    loaned,
+    overdue,
+    damaged,
+    pending,
+    approved,
+    rejected,
+  };
+};
+
 const hasApprovalStatus = (value: unknown, expected: 'pending' | 'approved' | 'rejected') =>
   normalizeApprovalStatus(value) === expected;
 
@@ -96,27 +154,40 @@ export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) =
 
 const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
   const items = Array.isArray(data.items) ? data.items : [];
-  const normalizedItems = items.map((item: any, index: number) => ({
-    id: item.id ?? `${requestId}-item-${index}`,
-    requestId: data.id ?? requestId,
-    toolId: item.toolId ?? '',
-    toolName: item.toolName ?? item.name ?? 'Herramienta',
-    quantity: Number(item.quantity ?? 1),
-    purpose: item.purpose ?? '',
-    workArea: item.workArea ?? '',
-    dueDate: item.dueDate ?? '',
-    training: item.training ?? 'yes',
-    condition: item.condition ?? 'Good',
-    approvalStatus: normalizeApprovalStatus(item.approvalStatus ?? 'pending'),
-    approvalComment: item.approvalComment ?? item.comment ?? '',
-    approverName: item.approverName ?? undefined,
-    notes: item.notes ?? '',
-    photoUrls: item.photoUrls ?? [],
-    createdAt: item.createdAt ?? data.createdAt ?? new Date().toISOString(),
-    approvedAt: item.approvedAt ?? item.approved_at ?? undefined,
-  }));
+  const normalizedItems = items.map((item: any, index: number) => {
+    const normalizedPhotoUrls = Array.isArray(item.photoUrls)
+      ? item.photoUrls
+      : Array.isArray(item.photoUrl)
+        ? item.photoUrl
+        : item.photoUrl
+          ? [item.photoUrl]
+          : [];
 
-  const normalizedStatus = deriveRequestStatus(normalizedItems);
+    return {
+      id: item.id ?? `${requestId}-item-${index}`,
+      requestId: data.id ?? requestId,
+      toolId: item.toolId ?? '',
+      toolName: item.toolName ?? item.name ?? 'Herramienta',
+      quantity: Number(item.quantity ?? 1),
+      purpose: item.purpose ?? '',
+      workArea: item.workArea ?? '',
+      dueDate: item.dueDate ?? '',
+      training: item.training ?? 'yes',
+      condition: item.condition ?? 'Good',
+      approvalStatus: normalizeApprovalStatus(item.approvalStatus ?? 'pending'),
+      approvalComment: item.approvalComment ?? item.comment ?? '',
+      approverName: item.approverName ?? undefined,
+      notes: item.notes ?? '',
+      photoUrls: normalizedPhotoUrls,
+      createdAt: item.createdAt ?? data.createdAt ?? new Date().toISOString(),
+      approvedAt: item.approvedAt ?? item.approved_at ?? undefined,
+      deliveredAt: item.deliveredAt ?? item.delivered_at ?? undefined,
+      returnedAt: item.returnedAt ?? item.returned_at ?? undefined,
+    };
+  });
+
+  const derivedStatus = deriveRequestStatus(normalizedItems);
+  const normalizedStatus = normalizeRequestStatus(data.status ?? derivedStatus);
 
   return {
     id: data.id ?? requestId,
@@ -330,10 +401,11 @@ export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> =>
         return false;
       }
 
+      const status = normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items));
       const hasPendingItems = request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending');
       const hasAnyKnownState = request.items.some((item) => ['pending', 'approved', 'rejected'].includes(normalizeApprovalStatus(item.approvalStatus)));
 
-      return hasPendingItems && hasAnyKnownState;
+      return status === 'pending' && hasPendingItems && hasAnyKnownState;
     })
     .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
 
@@ -371,42 +443,10 @@ export const getDashboardSummary = async () => {
   const deliveries = deliverySnapshot.docs.map((docSnap) => docSnap.data());
   const returns = returnSnapshot.docs.map((docSnap) => docSnap.data());
 
-  const approvedToolIds = new Set(
-    requests
-      .flatMap((request) => request.items)
-      .filter((item) => item.toolId && normalizeApprovalStatus(item.approvalStatus) === 'approved')
-      .map((item) => item.toolId),
+  const { totalInventory, available, loaned, overdue, damaged, pending, approved, rejected } = summarizeInventory(
+    tools,
+    requests,
   );
-
-  const pendingToolIds = new Set(
-    requests
-      .flatMap((request) => request.items)
-      .filter((item) => item.toolId && normalizeApprovalStatus(item.approvalStatus) === 'pending')
-      .map((item) => item.toolId),
-  );
-
-  const rejectedToolIds = new Set(
-    requests
-      .flatMap((request) => request.items)
-      .filter((item) => item.toolId && normalizeApprovalStatus(item.approvalStatus) === 'rejected')
-      .map((item) => item.toolId),
-  );
-
-  const totalInventory = tools.length;
-  const available = tools.filter((tool) => tool.status === 'available' && !approvedToolIds.has(tool.id) && !pendingToolIds.has(tool.id)).length;
-  const loaned = tools.filter((tool) => tool.status === 'loaned' || approvedToolIds.has(tool.id)).length;
-  const damaged = tools.filter((tool) => tool.status === 'maintenance' || tool.status === 'out_of_service').length;
-
-  const pending = requests.filter((request) => deriveRequestStatus(request.items) === 'pending').length;
-  const approved = requests.filter((request) => deriveRequestStatus(request.items) === 'approved').length;
-  const rejected = requests.filter((request) => deriveRequestStatus(request.items) === 'rejected').length;
-
-  const today = new Date();
-  const overdue = requests.filter((request) => {
-    if (request.status !== 'approved') return false;
-
-    return request.items.some((item) => item.dueDate && new Date(item.dueDate) < today && normalizeApprovalStatus(item.approvalStatus) === 'approved');
-  }).length;
 
   const toolUsage = new Map<string, number>();
   requests.forEach((request) => {
@@ -460,7 +500,7 @@ export const getApprovedRequestsForDelivery = async (): Promise<ToolRequest[]> =
     .map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()))
     .filter((request) => {
       const hasApprovedRequest = request.status === 'approved';
-      const hasApprovedItem = request.items.some((item) => hasApprovalStatus(item.approvalStatus, 'approved'));
+      const hasApprovedItem = request.items.some((item) => !item.deliveredAt && !item.returnedAt && hasApprovalStatus(item.approvalStatus, 'approved'));
       return hasApprovedRequest || hasApprovedItem;
     });
 };
@@ -492,12 +532,34 @@ export const addToolRequest = async (payload: Partial<ToolRequest>) => {
   return ref.id;
 };
 
+const resolveToolRequestRef = async (requestId: string) => {
+  if (!db || !isFirebaseConfigured) {
+    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para actualizar la solicitud.');
+  }
+
+  const directRef = doc(db, 'toolRequests', requestId);
+  const directSnapshot = await getDoc(directRef);
+
+  if (directSnapshot.exists()) {
+    return directRef;
+  }
+
+  const requestQuery = query(collection(db, 'toolRequests'), where('id', '==', requestId));
+  const requestSnapshot = await getDocs(requestQuery);
+
+  if (requestSnapshot.empty) {
+    return directRef;
+  }
+
+  return doc(db, 'toolRequests', requestSnapshot.docs[0].id);
+};
+
 export const updateToolRequestStatus = async (requestId: string, status: ToolRequest['status']) => {
   if (!db || !isFirebaseConfigured) {
     throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para actualizar el estado de la solicitud.');
   }
 
-  const ref = doc(db, 'toolRequests', requestId);
+  const ref = await resolveToolRequestRef(requestId);
   await updateDoc(ref, { status, updatedAt: new Date().toISOString() });
 };
 
@@ -512,7 +574,7 @@ export const updateToolRequestItemApproval = async (
     throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para registrar la aprobación.');
   }
 
-  const ref = doc(db, 'toolRequests', requestId);
+  const ref = await resolveToolRequestRef(requestId);
   const snapshot = await getDoc(ref);
 
   if (!snapshot.exists()) {
@@ -678,6 +740,29 @@ export const recordToolDelivery = async (delivery: {
     createdAt: new Date().toISOString(),
   });
 
+  const requestRef = await resolveToolRequestRef(delivery.requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (requestSnapshot.exists()) {
+    const currentRequest = requestSnapshot.data() as Partial<ToolRequest>;
+    const nextItems = (currentRequest.items ?? []).map((item: ToolRequestItem) => {
+      if (item.toolId !== delivery.toolId) {
+        return item;
+      }
+
+      return {
+        ...item,
+        deliveredAt: new Date().toISOString(),
+        notes: delivery.observations || item.notes || '',
+      };
+    });
+
+    await updateDoc(requestRef, {
+      items: nextItems,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+  }
+
   await updateDoc(doc(db, 'tools', delivery.toolId), {
     status: 'loaned',
     updatedAt: new Date().toISOString(),
@@ -730,6 +815,29 @@ export const recordToolReturn = async (payload: {
     status: nextToolStatus,
     updatedAt: new Date().toISOString(),
   }).catch(() => undefined);
+
+  const requestRef = await resolveToolRequestRef(payload.requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (requestSnapshot.exists()) {
+    const currentRequest = requestSnapshot.data() as Partial<ToolRequest>;
+    const nextItems = (currentRequest.items ?? []).map((item: ToolRequestItem) => {
+      if (item.toolId !== payload.toolId) {
+        return item;
+      }
+
+      return {
+        ...item,
+        returnedAt: new Date().toISOString(),
+        notes: payload.observations || item.notes || '',
+      };
+    });
+
+    await updateDoc(requestRef, {
+      items: nextItems,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+  }
 
   await createNotification({
     recipientUid: payload.requesterUid,

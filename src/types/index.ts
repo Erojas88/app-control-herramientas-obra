@@ -51,6 +51,8 @@ export type ToolRequestItem = {
   photoUrls?: string[];
   createdAt?: string;
   approvedAt?: string;
+  deliveredAt?: string;
+  returnedAt?: string;
 };
 
 export type ToolRequest = {
