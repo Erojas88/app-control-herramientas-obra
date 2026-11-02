@@ -1,5 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
+import { mockTools } from '../data/mockData';
 import type { NotificationItem, Tool, ToolRequest, ToolRequestItem, ToolStatus, UserProfile } from '../types';
 
 export const normalizeToolStatus = (value: unknown): ToolStatus => {
@@ -207,7 +208,7 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
 
 export const getTools = async (): Promise<Tool[]> => {
   if (!db || !isFirebaseConfigured) {
-    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para cargar herramientas reales.');
+    return mockTools.map((tool) => normalizeToolDoc(tool.id, tool));
   }
 
   const snapshot = await getDocs(collection(db, 'tools'));
