@@ -41,6 +41,26 @@ const formatDateForDisplay = (value: string) => {
   });
 };
 
+const resolveRequestHistoryStatus = (request: ToolRequest) => {
+  const items = request.items ?? [];
+
+  if (items.length > 0 && items.every((item) => !!item.returnedAt)) {
+    return 'Devuelta';
+  }
+
+  const effectiveStatus = getEffectiveRequestStatus(request);
+
+  if (effectiveStatus === 'approved') {
+    return 'Aprobada';
+  }
+
+  if (effectiveStatus === 'rejected') {
+    return 'Rechazada';
+  }
+
+  return 'Pendiente';
+};
+
 const buildEmptyForm = () => ({
   fullName: '',
   company: '',
@@ -595,7 +615,7 @@ export default function SolicitantePublicScreen() {
               <View key={request.id} style={styles.historyItem}>
                 <Text style={styles.historyTitle}>{request.projectName || 'Solicitud sin proyecto'}</Text>
                 <Text style={styles.historyMeta}>Folio: {request.id}</Text>
-                <Text style={styles.historyMeta}>Estado: {getEffectiveRequestStatus(request) === 'approved' ? 'Aprobada' : getEffectiveRequestStatus(request) === 'rejected' ? 'Rechazada' : 'Pendiente'}</Text>
+                <Text style={styles.historyMeta}>Estado: {resolveRequestHistoryStatus(request)}</Text>
                 <Text style={styles.historyMeta}>Herramientas: {request.items.length}</Text>
               </View>
             ))

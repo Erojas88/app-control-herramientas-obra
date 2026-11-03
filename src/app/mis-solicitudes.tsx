@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { getEffectiveRequestStatus, subscribeToRequestsByUser } from '../services/firebaseService';
+import { getEffectiveRequestStatus, normalizeApprovalStatus, subscribeToRequestsByUser } from '../services/firebaseService';
 import type { ToolRequest } from '../types';
 import { buildRequesterAccessUrl, getGuestSessionIdFromUrl, readGuestSession } from '../utils/quickAccess';
 
@@ -10,6 +10,44 @@ const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente',
   approved: 'Aprobada',
   rejected: 'Rechazada',
+  returned: 'Devuelta',
+  delivered: 'Entregada',
+};
+
+const resolveRequestDisplayStatus = (request: ToolRequest) => {
+  const items = request.items ?? [];
+
+  if (items.length > 0 && items.every((item) => !!item.returnedAt)) {
+    return 'returned';
+  }
+
+  return getEffectiveRequestStatus(request) === 'approved'
+    ? 'approved'
+    : getEffectiveRequestStatus(request) === 'rejected'
+      ? 'rejected'
+      : 'pending';
+};
+
+const resolveItemDisplayStatus = (item: ToolRequest['items'][number]) => {
+  if (item.returnedAt) {
+    return { value: 'returned', label: 'Devuelta' };
+  }
+
+  if (item.deliveredAt) {
+    return { value: 'delivered', label: 'Entregada' };
+  }
+
+  const approvalStatus = normalizeApprovalStatus(item.approvalStatus);
+
+  if (approvalStatus === 'approved') {
+    return { value: 'approved', label: 'Aprobada' };
+  }
+
+  if (approvalStatus === 'rejected') {
+    return { value: 'rejected', label: 'Rechazada' };
+  }
+
+  return { value: 'pending', label: 'Pendiente' };
 };
 
 export default function MisSolicitudesScreen() {
@@ -142,12 +180,12 @@ export default function MisSolicitudesScreen() {
         </View>
       ) : (
         requests.map((request) => {
-          const effectiveStatus = getEffectiveRequestStatus(request);
+          const effectiveStatus = resolveRequestDisplayStatus(request);
           return (
             <View key={request.id} style={styles.requestCard}>
               <View style={styles.requestHeader}>
                 <Text style={styles.requestTitle}>{request.projectName || 'Solicitud sin proyecto'}</Text>
-                <View style={[styles.statusPill, effectiveStatus === 'approved' ? styles.approved : effectiveStatus === 'rejected' ? styles.rejected : styles.pending]}>
+                <View style={[styles.statusPill, effectiveStatus === 'approved' ? styles.approved : effectiveStatus === 'rejected' ? styles.rejected : effectiveStatus === 'returned' ? styles.returned : styles.pending]}>
                   <Text style={styles.statusText}>{STATUS_LABELS[effectiveStatus] ?? 'Pendiente'}</Text>
                 </View>
               </View>
@@ -157,13 +195,13 @@ export default function MisSolicitudesScreen() {
               <Text style={styles.metaText}>Creada: {new Date(request.createdAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</Text>
 
               {request.items.map((item) => {
-                const itemStatus = item.approvalStatus === 'approved' ? 'Aprobada' : item.approvalStatus === 'rejected' ? 'Rechazada' : 'Pendiente';
+                const itemStatus = resolveItemDisplayStatus(item);
                 const decisionText = item.approvalComment ? `Comentario: ${item.approvalComment}` : 'Sin comentarios del jefe de obra.';
 
                 return (
                   <View key={item.id} style={styles.itemCard}>
                     <Text style={styles.itemTitle}>{item.toolName}</Text>
-                    <Text style={styles.itemMeta}>Estado: {itemStatus}</Text>
+                    <Text style={styles.itemMeta}>Estado: {itemStatus.label}</Text>
                     <Text style={styles.itemMeta}>Cantidad: {item.quantity}</Text>
                     <Text style={styles.itemMeta}>Área: {item.workArea || 'Sin área'}</Text>
                     <Text style={styles.itemMeta}>Fecha estimada: {item.dueDate || 'Sin fecha'}</Text>
@@ -215,6 +253,7 @@ const styles = StyleSheet.create({
   approved: { backgroundColor: '#dcfce7' },
   rejected: { backgroundColor: '#fee2e2' },
   pending: { backgroundColor: '#fef3c7' },
+  returned: { backgroundColor: '#dbeafe' },
   statusText: { color: '#0f172a', fontSize: 11, fontWeight: '800' },
   metaText: { color: '#475569', fontSize: 12, lineHeight: 18 },
   itemCard: { backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, marginTop: 12 },
