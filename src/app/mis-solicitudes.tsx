@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { getEffectiveRequestStatus, getRequestsByUser } from '../services/firebaseService';
+import { getEffectiveRequestStatus, subscribeToRequestsByUser } from '../services/firebaseService';
 import type { ToolRequest } from '../types';
 import { buildRequesterAccessUrl, getGuestSessionIdFromUrl, readGuestSession } from '../utils/quickAccess';
 
@@ -18,6 +18,7 @@ export default function MisSolicitudesScreen() {
   const [loading, setLoading] = useState(true);
   const [requests, setRequests] = useState<ToolRequest[]>([]);
   const [guestSessionId, setGuestSessionId] = useState<string | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const loadRequests = useCallback(async (sessionId: string | null) => {
     if (!sessionId) {
@@ -28,8 +29,15 @@ export default function MisSolicitudesScreen() {
 
     try {
       setLoading(true);
-      const records = await getRequestsByUser(sessionId);
-      setRequests(records.filter((request) => request.requesterUid === sessionId || request.guestSessionId === sessionId));
+      const unsub = subscribeToRequestsByUser(sessionId, (records) => {
+        setRequests(records);
+        setLoading(false);
+      });
+
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+      unsubscribeRef.current = unsub;
     } catch (error) {
       console.warn('No se pudieron cargar las solicitudes del visitante.', error);
       setRequests([]);
@@ -37,6 +45,14 @@ export default function MisSolicitudesScreen() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
   }, []);
 
   useFocusEffect(
@@ -48,11 +64,32 @@ export default function MisSolicitudesScreen() {
         const nextId = paramSessionId ?? urlSessionId ?? storageSession?.id ?? null;
 
         setGuestSessionId(nextId);
-        await loadRequests(nextId);
+        if (!nextId) {
+          setRequests([]);
+          setLoading(false);
+          return;
+        }
+
+        setLoading(true);
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+        }
+
+        unsubscribeRef.current = subscribeToRequestsByUser(nextId, (records) => {
+          setRequests(records);
+          setLoading(false);
+        });
       };
 
       void resolveSessionId();
-    }, [loadRequests, params.guestSessionId]),
+
+      return () => {
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+          unsubscribeRef.current = null;
+        }
+      };
+    }, [params.guestSessionId]),
   );
 
   const sessionUrl = useMemo(() => {
@@ -76,7 +113,14 @@ export default function MisSolicitudesScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.headerCard}>
         <Text style={styles.badge}>Solicitante</Text>
-        <Text style={styles.title}>Mis solicitudes</Text>
+        <View style={styles.headerActions}>
+          <Text style={styles.title}>Mis solicitudes</Text>
+          {guestSessionId ? (
+            <Pressable onPress={() => void loadRequests(guestSessionId)} style={styles.refreshButton}>
+              <Text style={styles.refreshText}>Actualizar</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={styles.subtitle}>Consulta el estado actual de cada herramienta solicitada y revisa la evidencia si aplica.</Text>
       </View>
 
@@ -154,7 +198,10 @@ const styles = StyleSheet.create({
   loaderText: { marginTop: 12, color: '#334155', fontWeight: '600' },
   headerCard: { backgroundColor: '#0f766e', borderRadius: 20, padding: 20, marginBottom: 16 },
   badge: { backgroundColor: '#ecfeff', color: '#115e59', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, fontSize: 11, fontWeight: '800', alignSelf: 'flex-start', marginBottom: 8, letterSpacing: 1 },
-  title: { fontSize: 28, fontWeight: '800', color: '#fff', marginBottom: 8 },
+  headerActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  title: { fontSize: 28, fontWeight: '800', color: '#fff', flex: 1 },
+  refreshButton: { backgroundColor: '#ecfeff', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  refreshText: { color: '#0f766e', fontWeight: '700', fontSize: 12 },
   subtitle: { fontSize: 14, color: '#d1fae5', lineHeight: 20 },
   emptyState: { backgroundColor: '#fff', borderRadius: 18, padding: 20, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 },
   emptyTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 8 },

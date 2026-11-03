@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
 import { mockRequests, mockTools } from '../data/mockData';
 import type { NotificationItem, Tool, ToolRequest, ToolRequestItem, ToolStatus, UserProfile } from '../types';
@@ -423,6 +423,26 @@ export const getRequestsByUser = async (uid: string): Promise<ToolRequest[]> => 
       return matchesRequester || matchesGuestSession;
     })
     .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+};
+
+export const subscribeToRequestsByUser = (
+  uid: string,
+  onUpdate: (requests: ToolRequest[]) => void,
+): (() => void) => {
+  const applyRequests = (requests: ToolRequest[]) => {
+    const filtered = requests.filter((request) => request.requesterUid === uid || request.guestSessionId === uid);
+    onUpdate(filtered.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()));
+  };
+
+  if (!db || !isFirebaseConfigured) {
+    applyRequests(getLocalDemoRequests());
+    return () => {};
+  }
+
+  return onSnapshot(collection(db, 'toolRequests'), (snapshot) => {
+    const requests = snapshot.docs.map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()));
+    applyRequests(requests);
+  });
 };
 
 export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> => {
