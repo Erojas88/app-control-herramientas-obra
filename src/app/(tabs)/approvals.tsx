@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { getPendingRequestsForApproval, normalizeApprovalStatus, normalizeRequestStatus, updateToolRequestItemApproval } from '../../services/firebaseService';
+import { getEffectiveRequestStatus, getPendingRequestsForApproval, normalizeApprovalStatus, updateToolRequestItemApproval } from '../../services/firebaseService';
 import type { ToolRequest, ToolRequestItem } from '../../types';
 
 export default function ApprovalsScreen() {
@@ -45,7 +45,7 @@ export default function ApprovalsScreen() {
 
   const pendingRequests = useMemo(
     () => requests.filter((request) => {
-      const status = normalizeRequestStatus(request.status);
+      const status = getEffectiveRequestStatus(request);
       return status === 'pending' && request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending');
     }),
     [requests],
@@ -101,7 +101,18 @@ export default function ApprovalsScreen() {
     const nextComment = comments[itemId] ?? '';
 
     try {
-      await updateToolRequestItemApproval(requestId, itemId, decision, user.fullName, nextComment);
+      const changed = await updateToolRequestItemApproval(requestId, itemId, decision, user.fullName, nextComment);
+
+      if (!changed) {
+        setRequests((current) =>
+          current.filter((request) => {
+            if (request.id !== requestId) return true;
+            return request.items.some((item) => item.id !== itemId && normalizeApprovalStatus(item.approvalStatus) === 'pending');
+          }),
+        );
+        Alert.alert('Estado ya actualizado', 'Esta decisión ya fue registrada previamente y no se puede repetir.');
+        return;
+      }
 
       setRequests((current) =>
         current
@@ -119,18 +130,13 @@ export default function ApprovalsScreen() {
               };
             });
 
-            const allDone = updatedItems.every((item) => normalizeApprovalStatus(item.approvalStatus) !== 'pending');
-            const allApproved = updatedItems.every((item) => normalizeApprovalStatus(item.approvalStatus) === 'approved');
-            const allRejected = updatedItems.every((item) => normalizeApprovalStatus(item.approvalStatus) === 'rejected');
-            const nextStatus: ToolRequest['status'] = allDone ? (allApproved ? 'approved' : allRejected ? 'rejected' : 'pending') : 'pending';
-
             return {
               ...request,
-              status: nextStatus,
+              status: getEffectiveRequestStatus({ ...request, items: updatedItems }),
               items: updatedItems,
             };
           })
-          .filter((request) => normalizeRequestStatus(request.status) === 'pending' && request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
+          .filter((request) => getEffectiveRequestStatus(request) === 'pending' && request.items.some((item) => normalizeApprovalStatus(item.approvalStatus) === 'pending')),
       );
 
       const refreshed = await getPendingRequestsForApproval();

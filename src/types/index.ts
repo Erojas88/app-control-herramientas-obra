@@ -55,6 +55,14 @@ export type ToolRequestItem = {
   returnedAt?: string;
 };
 
+export type GuestSession = {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  displayName?: string;
+  status: 'active' | 'expired';
+};
+
 export type ToolRequest = {
   id: string;
   requesterUid: string;
@@ -69,6 +77,8 @@ export type ToolRequest = {
   items: ToolRequestItem[];
   observations?: string;
   approverName?: string;
+  guestSessionId?: string;
+  guestSessionExpiresAt?: string;
 };
 
 export type NotificationItem = {

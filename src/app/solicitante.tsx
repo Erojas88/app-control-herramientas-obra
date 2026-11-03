@@ -2,10 +2,12 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect } from 'expo-router';
-import { addToolRequest, getTools } from '../services/firebaseService';
+import * as Linking from 'expo-linking';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { addToolRequest, getEffectiveRequestStatus, getRequestsByUser, getTools } from '../services/firebaseService';
 import { uploadToolEvidence } from '../services/storageService';
-import type { Tool, ToolRequest } from '../types';
+import type { GuestSession, Tool, ToolRequest } from '../types';
+import { buildRequesterAccessUrl, createGuestSession, getGuestSessionIdFromUrl, isGuestSessionActive, readGuestSession, writeGuestSession } from '../utils/quickAccess';
 
 const TOOL_CONDITIONS = ['Excellent', 'Good', 'Regular', 'Damaged'] as const;
 type ToolCondition = (typeof TOOL_CONDITIONS)[number];
@@ -51,6 +53,7 @@ const buildEmptyForm = () => ({
 });
 
 export default function SolicitantePublicScreen() {
+  const router = useRouter();
   const [toolCatalog, setToolCatalog] = useState<Tool[]>([]);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
   const [toolDrafts, setToolDrafts] = useState<Record<string, ToolDraft>>({});
@@ -59,6 +62,8 @@ export default function SolicitantePublicScreen() {
   const [toolLoadError, setToolLoadError] = useState<string | null>(null);
   const [showDueDatePicker, setShowDueDatePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [guestSession, setGuestSession] = useState<GuestSession | null>(null);
+  const [requestHistory, setRequestHistory] = useState<ToolRequest[]>([]);
   const [submitFeedback, setSubmitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const webDateInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -98,9 +103,43 @@ export default function SolicitantePublicScreen() {
     input.click();
   }, [form.dueDate]);
 
+  const loadGuestRequests = useCallback(async (sessionId: string) => {
+    try {
+      const records = await getRequestsByUser(sessionId);
+      setRequestHistory(records.filter((request) => request.requesterUid === sessionId || request.guestSessionId === sessionId));
+    } catch (error) {
+      console.warn('No se pudieron cargar las solicitudes del visitante.', error);
+      setRequestHistory([]);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       let active = true;
+
+      const initializeGuestSession = async () => {
+        const currentUrl = typeof window !== 'undefined' ? window.location.href : null;
+        const initialUrl = await Linking.getInitialURL();
+        const sessionFromUrl = getGuestSessionIdFromUrl(initialUrl ?? currentUrl);
+        const sessionFromStorage = readGuestSession();
+
+        let nextSession = sessionFromUrl ? {
+          id: sessionFromUrl,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          status: 'active' as const,
+        } : sessionFromStorage;
+
+        if (!nextSession || !isGuestSessionActive(nextSession)) {
+          nextSession = createGuestSession();
+        }
+
+        if (nextSession && isGuestSessionActive(nextSession)) {
+          writeGuestSession(nextSession);
+          setGuestSession(nextSession);
+          void loadGuestRequests(nextSession.id);
+        }
+      };
 
       const loadTools = async () => {
         try {
@@ -131,12 +170,13 @@ export default function SolicitantePublicScreen() {
         }
       };
 
+      void initializeGuestSession();
       void loadTools();
 
       return () => {
         active = false;
       };
-    }, []),
+    }, [loadGuestRequests]),
   );
 
   const availableTools = useMemo(
@@ -278,17 +318,20 @@ export default function SolicitantePublicScreen() {
 
     try {
       const requestId = `REQ-${Date.now()}`;
-      const publicRequesterId = `public-${Date.now()}`;
+      const activeGuestId = guestSession?.id ?? `public-${Date.now()}`;
+      const guestExpiresAt = guestSession?.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
       const requestPayload: Partial<ToolRequest> = {
         id: requestId,
-        requesterUid: publicRequesterId,
+        requesterUid: activeGuestId,
         requesterName: form.fullName,
         role: 'solicitante',
         company: form.company,
         projectName: form.projectName,
         createdAt: new Date().toISOString(),
         status: 'pending',
+        guestSessionId: guestSession?.id,
+        guestSessionExpiresAt: guestExpiresAt,
         items: selectedToolIds.map((toolId) => {
           const tool = toolCatalog.find((entry) => entry.id === toolId);
           const draft = toolDrafts[toolId] ?? { condition: 'Good', photoUrls: [] };
@@ -331,6 +374,10 @@ export default function SolicitantePublicScreen() {
 
       Alert.alert('Solicitud enviada', successMessage);
 
+      if (guestSession) {
+        void loadGuestRequests(guestSession.id);
+      }
+
       setSelectedToolIds([]);
       setToolDrafts({});
       setForm(buildEmptyForm());
@@ -356,6 +403,14 @@ export default function SolicitantePublicScreen() {
       </View>
 
       <View style={styles.formCard}>
+        {guestSession && (
+          <View style={styles.sessionCard}>
+            <Text style={styles.sectionTitle}>Mi sesión pública</Text>
+            <Text style={styles.sessionMeta}>Token temporal activo hasta {new Date(guestSession.expiresAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</Text>
+            <Text style={styles.sessionUrl}>{buildRequesterAccessUrl('https', guestSession.id)}</Text>
+          </View>
+        )}
+
         {submitFeedback && (
           <View style={[styles.feedback, submitFeedback.type === 'success' ? styles.feedbackSuccess : styles.feedbackError]}>
             <Text style={styles.feedbackText}>{submitFeedback.message}</Text>
@@ -531,6 +586,24 @@ export default function SolicitantePublicScreen() {
           <Text style={styles.submitButtonText}>{submitting ? 'Enviando...' : 'Enviar solicitud'}</Text>
         </Pressable>
       </View>
+
+      {guestSession && (
+        <View style={styles.historyCard}>
+          <Text style={styles.sectionTitle}>Mis solicitudes</Text>
+          {requestHistory.length ? (
+            requestHistory.map((request) => (
+              <View key={request.id} style={styles.historyItem}>
+                <Text style={styles.historyTitle}>{request.projectName || 'Solicitud sin proyecto'}</Text>
+                <Text style={styles.historyMeta}>Folio: {request.id}</Text>
+                <Text style={styles.historyMeta}>Estado: {getEffectiveRequestStatus(request) === 'approved' ? 'Aprobada' : getEffectiveRequestStatus(request) === 'rejected' ? 'Rechazada' : 'Pendiente'}</Text>
+                <Text style={styles.historyMeta}>Herramientas: {request.items.length}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyHistory}>Aún no registras solicitudes con esta sesión pública.</Text>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -581,6 +654,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 10,
     elevation: 2,
+  },
+  sessionCard: {
+    backgroundColor: '#ecfeff',
+    borderWidth: 1,
+    borderColor: '#a5f3fc',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  sessionMeta: {
+    color: '#115e59',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  sessionUrl: {
+    color: '#0f172a',
+    fontSize: 11,
+    lineHeight: 16,
   },
   feedback: {
     borderRadius: 12,
@@ -760,6 +852,40 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 10,
     backgroundColor: '#e2e8f0',
+  },
+  historyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 18,
+    marginTop: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  historyItem: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    marginTop: 10,
+  },
+  historyTitle: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  historyMeta: {
+    color: '#475569',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  emptyHistory: {
+    color: '#475569',
+    fontSize: 13,
+    marginTop: 8,
   },
   submitButton: {
     backgroundColor: '#0f766e',

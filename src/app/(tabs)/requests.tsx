@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { addToolRequest, getRequestsByUser, getTools, normalizeApprovalStatus } from '../../services/firebaseService';
@@ -240,7 +240,6 @@ export default function RequestsScreen() {
       </View>
 
       <View style={styles.listSection}>
-        <Text style={styles.sectionTitle}>Historial de solicitudes</Text>
         {requests.map((item) => (
           <View key={item.id} style={styles.card}>
             <View style={styles.rowBetween}>
@@ -273,6 +272,21 @@ export default function RequestsScreen() {
                   <Text style={styles.itemText}>Motivo: {entry.purpose}</Text>
                   <Text style={styles.itemText}>Capacitación: {entry.training}</Text>
                   <Text style={styles.itemText}>Estado de la herramienta: {entry.condition}</Text>
+                  {entry.approvalComment ? (
+                    <Text style={styles.itemText}>Comentario del jefe: {entry.approvalComment}</Text>
+                  ) : null}
+                  {Array.isArray(entry.photoUrls) && entry.photoUrls.length > 0 ? (
+                    <View style={styles.photoGrid}>
+                      {entry.photoUrls.map((photoUrl, photoIndex) => (
+                        <Image
+                          key={`${entry.id}-photo-${photoIndex}`}
+                          source={{ uri: photoUrl }}
+                          style={styles.photo}
+                          resizeMode="cover"
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                   <Text style={[
                     styles.itemText,
                     styles.approvalState,
@@ -485,6 +499,18 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 13,
     marginBottom: 2,
+  },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+    gap: 8,
+  },
+  photo: {
+    width: 88,
+    height: 88,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
   },
   approvalState: {
     fontWeight: '700',

@@ -8,6 +8,7 @@ import {
   summarizeInventory,
 } from './firebaseService';
 import { loginWithEmailAndPassword } from './firebaseAuthService';
+import { buildRequesterAccessUrl, getGuestSessionIdFromUrl } from '../utils/quickAccess';
 
 test('deriveRequestStatus marks a request as rejected when all items are rejected', () => {
   const result = deriveRequestStatus([
@@ -109,4 +110,12 @@ test('dashboard inventory counts should reflect actual tool status after a retur
   assert.equal(summary.loaned, 1);
   assert.equal(summary.damaged, 1);
   assert.equal(summary.approved, 1);
+});
+
+test('public QR guest access keeps a temporary session token in the URL', () => {
+  const guestId = 'guest-1720000000000-abc123';
+  const url = buildRequesterAccessUrl('https', guestId);
+
+  assert.equal(getGuestSessionIdFromUrl(url), guestId);
+  assert.match(url, /guestSessionId=guest-1720000000000-abc123/);
 });

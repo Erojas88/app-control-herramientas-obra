@@ -1,6 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
-import { mockTools } from '../data/mockData';
+import { mockRequests, mockTools } from '../data/mockData';
 import type { NotificationItem, Tool, ToolRequest, ToolRequestItem, ToolStatus, UserProfile } from '../types';
 
 export const normalizeToolStatus = (value: unknown): ToolStatus => {
@@ -80,6 +80,18 @@ export const normalizeRequestStatus = (value: unknown): ToolRequest['status'] =>
   return 'pending';
 };
 
+export const getEffectiveRequestStatus = (
+  request: { status?: unknown; items?: Array<{ approvalStatus?: string }> } | undefined,
+): ToolRequest['status'] => {
+  const items = Array.isArray(request?.items) ? request.items : [];
+
+  if (items.length > 0) {
+    return normalizeRequestStatus(deriveRequestStatus(items));
+  }
+
+  return normalizeRequestStatus(request?.status);
+};
+
 export const summarizeInventory = (
   tools: Array<{ id?: string; status?: string }>,
   requests: Array<{ status?: string; items?: Array<{ approvalStatus?: string; dueDate?: string; returnedAt?: string }> }>,
@@ -92,13 +104,13 @@ export const summarizeInventory = (
     return status === 'maintenance' || status === 'out_of_service';
   }).length;
 
-  const pending = requests.filter((request) => normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])) === 'pending').length;
-  const approved = requests.filter((request) => normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])) === 'approved').length;
-  const rejected = requests.filter((request) => normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])) === 'rejected').length;
+  const pending = requests.filter((request) => getEffectiveRequestStatus(request) === 'pending').length;
+  const approved = requests.filter((request) => getEffectiveRequestStatus(request) === 'approved').length;
+  const rejected = requests.filter((request) => getEffectiveRequestStatus(request) === 'rejected').length;
 
   const today = new Date();
   const overdue = requests.filter((request) => {
-    const requestStatus = normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? []));
+    const requestStatus = getEffectiveRequestStatus(request);
     if (requestStatus !== 'approved') {
       return false;
     }
@@ -126,6 +138,17 @@ export const summarizeInventory = (
 
 const hasApprovalStatus = (value: unknown, expected: 'pending' | 'approved' | 'rejected') =>
   normalizeApprovalStatus(value) === expected;
+
+const getLocalDemoRequests = (): ToolRequest[] =>
+  mockRequests.map((request) => ({
+    ...request,
+    status: normalizeRequestStatus(request.status ?? deriveRequestStatus(request.items ?? [])),
+    items: (request.items ?? []).map((item) => ({
+      ...item,
+      approvalStatus: normalizeApprovalStatus(item.approvalStatus ?? 'pending'),
+      photoUrls: Array.isArray(item.photoUrls) ? item.photoUrls : item.photoUrls ? [item.photoUrls] : [],
+    })),
+  }));
 
 export const deriveRequestStatus = (items: Array<{ approvalStatus?: string }>) => {
   if (!items.length) {
@@ -188,7 +211,7 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
   });
 
   const derivedStatus = deriveRequestStatus(normalizedItems);
-  const normalizedStatus = normalizeRequestStatus(data.status ?? derivedStatus);
+  const normalizedStatus = getEffectiveRequestStatus({ status: data.status, items: normalizedItems });
 
   return {
     id: data.id ?? requestId,
@@ -202,6 +225,8 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
     status: normalizedStatus,
     observations: data.observations ?? '',
     approverName: data.approverName ?? undefined,
+    guestSessionId: data.guestSessionId ?? data.guest_session_id ?? undefined,
+    guestSessionExpiresAt: data.guestSessionExpiresAt ?? data.guest_session_expires_at ?? undefined,
     items: normalizedItems,
   };
 };
@@ -372,7 +397,7 @@ export const getUsers = async (): Promise<UserProfile[]> => {
 
 export const getAllRequests = async (): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return [];
+    return getLocalDemoRequests();
   }
 
   const snapshot = await getDocs(collection(db, 'toolRequests'));
@@ -381,22 +406,31 @@ export const getAllRequests = async (): Promise<ToolRequest[]> => {
 
 export const getRequestsByUser = async (uid: string): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return [];
-  }
-
-  const q = query(collection(db, 'toolRequests'), where('requesterUid', '==', uid));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()));
-};
-
-export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> => {
-  if (!db || !isFirebaseConfigured) {
-    throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para revisar solicitudes reales.');
+    return getLocalDemoRequests().filter((request) => {
+      const matchesRequester = request.requesterUid === uid;
+      const matchesGuestSession = request.guestSessionId === uid;
+      return matchesRequester || matchesGuestSession;
+    }).sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
   }
 
   const snapshot = await getDocs(collection(db, 'toolRequests'));
-  const requests = snapshot.docs
+
+  return snapshot.docs
     .map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()))
+    .filter((request) => {
+      const matchesRequester = request.requesterUid === uid;
+      const matchesGuestSession = request.guestSessionId === uid;
+      return matchesRequester || matchesGuestSession;
+    })
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+};
+
+export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> => {
+  const pendingRequests = (!db || !isFirebaseConfigured)
+    ? getLocalDemoRequests()
+    : (await getDocs(collection(db, 'toolRequests'))).docs.map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()));
+
+  return pendingRequests
     .filter((request) => {
       if (!request.items?.length) {
         return false;
@@ -409,8 +443,6 @@ export const getPendingRequestsForApproval = async (): Promise<ToolRequest[]> =>
       return status === 'pending' && hasPendingItems && hasAnyKnownState;
     })
     .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
-
-  return requests;
 };
 
 export const getDashboardSummary = async () => {
@@ -429,7 +461,40 @@ export const getDashboardSummary = async () => {
   };
 
   if (!db || !isFirebaseConfigured) {
-    return zeroSummary;
+    const requests = getLocalDemoRequests();
+    const tools = mockTools.map((tool) => normalizeToolDoc(tool.id, tool));
+    const { totalInventory, available, loaned, overdue, damaged, pending, approved, rejected } = summarizeInventory(
+      tools,
+      requests,
+    );
+
+    const toolUsage = new Map<string, number>();
+    requests.forEach((request) => {
+      request.items.forEach((item) => {
+        const toolName = item.toolName || 'Herramienta';
+        toolUsage.set(toolName, (toolUsage.get(toolName) ?? 0) + Math.max(1, item.quantity || 1));
+      });
+    });
+
+    const workerUsage = new Map<string, number>();
+    requests.forEach((request) => {
+      const key = request.requesterName || 'Solicitante';
+      workerUsage.set(key, (workerUsage.get(key) ?? 0) + 1);
+    });
+
+    return {
+      totalInventory,
+      available,
+      loaned,
+      overdue,
+      damaged,
+      pending,
+      approved,
+      rejected,
+      totalLoans: requests.length,
+      topTools: [...toolUsage.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([label]) => label),
+      topWorkers: [...workerUsage.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([label]) => label),
+    };
   }
 
   const [toolSnapshot, requestSnapshot, deliverySnapshot, returnSnapshot] = await Promise.all([
@@ -500,7 +565,8 @@ export const getApprovedRequestsForDelivery = async (): Promise<ToolRequest[]> =
   return snapshot.docs
     .map((docSnap) => normalizeToolRequest(docSnap.id, docSnap.data()))
     .filter((request) => {
-      const hasApprovedRequest = request.status === 'approved';
+      const effectiveStatus = getEffectiveRequestStatus(request);
+      const hasApprovedRequest = effectiveStatus === 'approved';
       const hasApprovedItem = request.items.some((item) => !item.deliveredAt && !item.returnedAt && hasApprovalStatus(item.approvalStatus, 'approved'));
       return hasApprovedRequest || hasApprovedItem;
     });
@@ -561,7 +627,18 @@ export const updateToolRequestStatus = async (requestId: string, status: ToolReq
   }
 
   const ref = await resolveToolRequestRef(requestId);
-  await updateDoc(ref, { status, updatedAt: new Date().toISOString() });
+  const snapshot = await getDoc(ref);
+
+  if (!snapshot.exists()) {
+    return;
+  }
+
+  const currentRequest = snapshot.data() as Partial<ToolRequest>;
+  const nextStatus = Array.isArray(currentRequest.items) && currentRequest.items.length > 0
+    ? deriveRequestStatus(currentRequest.items as Array<{ approvalStatus?: string }>)
+    : normalizeRequestStatus(status);
+
+  await updateDoc(ref, { status: nextStatus, updatedAt: new Date().toISOString() });
 };
 
 export const updateToolRequestItemApproval = async (
@@ -570,7 +647,7 @@ export const updateToolRequestItemApproval = async (
   decision: 'approved' | 'rejected',
   approverName: string,
   comment?: string,
-) => {
+): Promise<boolean> => {
   if (!db || !isFirebaseConfigured) {
     throw new Error('Firebase no está configurado. Verifica las variables EXPO_PUBLIC_FIREBASE_* para registrar la aprobación.');
   }
@@ -579,11 +656,28 @@ export const updateToolRequestItemApproval = async (
   const snapshot = await getDoc(ref);
 
   if (!snapshot.exists()) {
-    return;
+    return false;
   }
 
   const currentRequest = snapshot.data() as Partial<ToolRequest>;
-  const nextItems = (currentRequest.items ?? []).map((item: ToolRequestItem) => {
+  const currentItems = (currentRequest.items ?? []) as ToolRequestItem[];
+  const currentItem = currentItems.find((item) => item.id === itemId);
+
+  if (!currentItem) {
+    return false;
+  }
+
+  const currentApproval = normalizeApprovalStatus(currentItem.approvalStatus);
+  if (currentApproval !== 'pending') {
+    const requestStatus = deriveRequestStatus(currentItems);
+    await updateDoc(ref, {
+      status: requestStatus,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+    return false;
+  }
+
+  const nextItems = currentItems.map((item: ToolRequestItem) => {
     if (item.id !== itemId) {
       return item;
     }
@@ -641,6 +735,8 @@ export const updateToolRequestItemApproval = async (
     userName: requesterName,
     details: { itemId, decision, approverName, comment: comment ?? '' },
   });
+
+  return true;
 };
 
 const logAuditEvent = async (event: {

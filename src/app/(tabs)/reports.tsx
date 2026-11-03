@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { getAllRequests } from '../../services/firebaseService';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { getAllRequests, getEffectiveRequestStatus } from '../../services/firebaseService';
 import type { ToolRequest } from '../../types';
 
 const formatDate = (value?: string) => {
@@ -70,18 +70,19 @@ export default function ReportsScreen() {
 
   const filteredRequests = useMemo(() => {
     return requests.filter((request) => {
+      const effectiveStatus = getEffectiveRequestStatus(request);
       const projectMatch = !filterProject || (request.projectName ?? '').toLowerCase().includes(filterProject.toLowerCase());
       const toolMatch = !filterTool || request.items.some((item) => item.toolName.toLowerCase().includes(filterTool.toLowerCase()));
       const workerMatch = !filterWorker || request.requesterName.toLowerCase().includes(filterWorker.toLowerCase());
-      const statusMatch = statusFilter === 'all' || request.status === statusFilter;
+      const statusMatch = statusFilter === 'all' || effectiveStatus === statusFilter;
       return projectMatch && toolMatch && workerMatch && statusMatch;
     });
   }, [requests, filterProject, filterTool, filterWorker, statusFilter]);
 
   const totalLoans = filteredRequests.reduce((sum, request) => sum + request.items.length, 0);
-  const approved = filteredRequests.filter((request) => request.status === 'approved').length;
-  const pending = filteredRequests.filter((request) => request.status === 'pending').length;
-  const rejected = filteredRequests.filter((request) => request.status === 'rejected').length;
+  const approved = filteredRequests.filter((request) => getEffectiveRequestStatus(request) === 'approved').length;
+  const pending = filteredRequests.filter((request) => getEffectiveRequestStatus(request) === 'pending').length;
+  const rejected = filteredRequests.filter((request) => getEffectiveRequestStatus(request) === 'rejected').length;
 
   const handleExport = (type: 'excel' | 'pdf') => {
     if (!filteredRequests.length) {
@@ -135,6 +136,51 @@ export default function ReportsScreen() {
             </Pressable>
           ))}
         </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Historial completo</Text>
+        {filteredRequests.length === 0 ? (
+          <Text style={styles.emptyText}>No hay solicitudes para mostrar con los filtros actuales.</Text>
+        ) : (
+          filteredRequests.map((request) => {
+            const effectiveStatus = getEffectiveRequestStatus(request);
+            return (
+              <View key={request.id} style={styles.historyCard}>
+                <View style={styles.historyHeader}>
+                  <Text style={styles.historyId}>{request.id}</Text>
+                  <Text style={[styles.historyStatus, effectiveStatus === 'approved' ? styles.approved : effectiveStatus === 'rejected' ? styles.rejected : styles.pending]}>
+                    {effectiveStatus === 'approved' ? 'Aprobada' : effectiveStatus === 'rejected' ? 'Rechazada' : 'Pendiente'}
+                  </Text>
+                </View>
+
+                <Text style={styles.historyWorker}>{request.requesterName}</Text>
+                <Text style={styles.historyMeta}>{request.projectName ?? 'Sin proyecto'} · {request.company}</Text>
+                <Text style={styles.historyMeta}>Fecha: {formatDate(request.createdAt)}</Text>
+                {request.guestSessionId ? <Text style={styles.historyMeta}>Origen: sesión pública/guest</Text> : null}
+
+                {request.items.map((item) => (
+                  <View key={item.id} style={styles.itemBox}>
+                    <Text style={styles.itemTitle}>{item.toolName}</Text>
+                    <Text style={styles.itemText}>Cantidad: {item.quantity}</Text>
+                    <Text style={styles.itemText}>Motivo: {item.purpose}</Text>
+                    <Text style={styles.itemText}>Área: {item.workArea}</Text>
+                    <Text style={styles.itemText}>Estado del item: {item.approvalStatus === 'approved' ? 'Aprobada' : item.approvalStatus === 'rejected' ? 'Rechazada' : 'Pendiente'}</Text>
+                    {item.approvalComment ? <Text style={styles.itemText}>Comentario del jefe: {item.approvalComment}</Text> : null}
+
+                    {Array.isArray(item.photoUrls) && item.photoUrls.length > 0 ? (
+                      <View style={styles.photoGrid}>
+                        {item.photoUrls.map((photoUrl, photoIndex) => (
+                          <Image key={`${item.id}-${photoIndex}`} source={{ uri: photoUrl }} style={styles.photo} resizeMode="cover" />
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            );
+          })
+        )}
       </View>
 
       <View style={styles.card}>
@@ -225,6 +271,88 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: '#fff',
+  },
+  historyCard: {
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: '#f8fafc',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  historyId: {
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  historyStatus: {
+    fontSize: 11,
+    fontWeight: '700',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  approved: {
+    backgroundColor: '#dcfce7',
+    color: '#166534',
+  },
+  rejected: {
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+  },
+  pending: {
+    backgroundColor: '#fef3c7',
+    color: '#92400e',
+  },
+  historyWorker: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  historyMeta: {
+    color: '#475569',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  emptyText: {
+    color: '#475569',
+    fontSize: 13,
+  },
+  itemBox: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  itemTitle: {
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  itemText: {
+    color: '#475569',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 8,
+  },
+  photo: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
   },
   exportButton: {
     backgroundColor: '#0f766e',
