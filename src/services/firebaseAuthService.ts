@@ -1,6 +1,8 @@
+import { Platform } from 'react-native';
 import {
   browserLocalPersistence,
   createUserWithEmailAndPassword,
+  inMemoryPersistence,
   setPersistence,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -168,7 +170,8 @@ export const loginWithEmailAndPassword = async (email: string, password: string)
   }
 
   try {
-    await setPersistence(auth, browserLocalPersistence);
+    const persistence = Platform.OS === 'web' ? browserLocalPersistence : inMemoryPersistence;
+    await setPersistence(auth, persistence);
     const credential = await signInWithEmailAndPassword(auth, email, password);
     const userDoc = await getDoc(doc(db, 'users', credential.user.uid));
 
