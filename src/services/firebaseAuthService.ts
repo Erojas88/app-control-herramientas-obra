@@ -44,17 +44,53 @@ const DEMO_USERS: Record<string, { password: string; user: UserProfile }> = {
       projectName: 'Proyecto Jardín Botánico',
     },
   },
+  'admin@demo': {
+    password: 'demo1234',
+    user: {
+      uid: 'demo-admin',
+      fullName: 'Administrador Demo',
+      role: 'admin',
+      company: 'Constructora Demo',
+      position: 'Administrador',
+      email: 'admin@demo',
+      active: true,
+      projectName: 'Proyecto Jardín Botánico',
+    },
+  },
+  'admin@demo.com': {
+    password: 'demo1234',
+    user: {
+      uid: 'demo-admin',
+      fullName: 'Administrador Demo',
+      role: 'admin',
+      company: 'Constructora Demo',
+      position: 'Administrador',
+      email: 'admin@demo.com',
+      active: true,
+      projectName: 'Proyecto Jardín Botánico',
+    },
+  },
 };
 
 const normalizeRole = (role?: string): UserProfile['role'] => {
-  const normalized = (role ?? 'solicitante').toLowerCase();
+  const normalized = (role ?? 'solicitante').trim().toLowerCase().replace(/\s+/g, ' ');
 
-  if (normalized === 'jefe' || normalized === 'jefeobra' || normalized === 'jefe_obra') {
+  if (normalized === 'jefe' || normalized === 'jefeobra' || normalized === 'jefe_obra' || normalized === 'jefe de obra') {
     return 'jefe_obra';
   }
 
-  if (normalized === 'solicitante') return 'solicitante';
-  if (normalized === 'admin') return 'admin';
+  if (
+    normalized === 'admin'
+    || normalized === 'administrador'
+    || normalized === 'administradorobra'
+    || normalized === 'administrador de obra'
+    || normalized === 'administrador obra'
+    || normalized === 'adminobra'
+    || normalized === 'admin obra'
+    || normalized === 'admin_obra'
+  ) {
+    return 'admin';
+  }
 
   return 'solicitante';
 };

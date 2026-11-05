@@ -53,6 +53,11 @@ const exportPdf = (rows: ToolRequest[]) => {
   URL.revokeObjectURL(url);
 };
 
+const isAdminRole = (role?: string) => {
+  const normalized = String(role ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return ['admin', 'administrador', 'adminobra', 'admin obra', 'admin_obra', 'administrador obra', 'administrador de obra'].includes(normalized);
+};
+
 export default function ReportsScreen() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<ToolRequest[]>([]);
@@ -60,8 +65,10 @@ export default function ReportsScreen() {
   const [filterTool, setFilterTool] = useState('');
   const [filterWorker, setFilterWorker] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
-  const canManageInventory = user?.role === 'admin';
+  const canManageInventory = isAdminRole(user?.role);
 
   const loadRequests = async () => {
     const allRequests = await getAllRequests();
@@ -109,30 +116,36 @@ export default function ReportsScreen() {
     exportPdf(filteredRequests);
   };
 
-  const handleResetOperationalState = async () => {
-    Alert.alert(
-      'Reiniciar flujo operativo',
-      'Esto dejará en cero las solicitudes, entregas, devoluciones y notificaciones del sistema. ¿Deseas continuar?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Reiniciar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await resetOperationalState();
-              Alert.alert(
-                'Sistema reiniciado',
-                `Se limpiaron ${result.deletedRequests} solicitudes, ${result.deletedDeliveries} entregas, ${result.deletedReturns} devoluciones, ${result.deletedNotifications} notificaciones y ${result.deletedAuditLogs ?? 0} registros de auditoría. ${result.resetTools} herramientas quedaron disponibles.`,
-              );
-              await loadRequests();
-            } catch (error: any) {
-              Alert.alert('Error', error?.message ?? 'No se pudo reiniciar el flujo operativo.');
-            }
-          },
-        },
-      ],
-    );
+  const handleResetOperationalState = () => {
+    console.log('Reset action triggered', { role: user?.role, canManageInventory });
+
+    if (!canManageInventory) {
+      Alert.alert('Acceso denegado', 'Solo el rol de Administrador puede reiniciar el sistema a cero.');
+      return;
+    }
+
+    setShowResetConfirm(true);
+  };
+
+  const confirmResetOperationalState = async () => {
+    try {
+      console.log('Executing resetOperationalState');
+      setIsResetting(true);
+      setShowResetConfirm(false);
+      setRequests([]);
+      const result = await resetOperationalState();
+      console.log('Reset result', result);
+      Alert.alert(
+        'Sistema reiniciado',
+        `Se limpiaron ${result.deletedRequests} solicitudes, ${result.deletedDeliveries} entregas, ${result.deletedReturns} devoluciones, ${result.deletedNotifications} notificaciones y ${result.deletedAuditLogs ?? 0} registros de auditoría. ${result.resetTools} herramientas quedaron disponibles.`,
+      );
+      await loadRequests();
+    } catch (error: any) {
+      console.error('Reset failure', error);
+      Alert.alert('Error', error?.message ?? 'No se pudo reiniciar el flujo operativo.');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   return (
@@ -147,11 +160,36 @@ export default function ReportsScreen() {
         <Text style={styles.metric}>Solicitudes rechazadas: {rejected}</Text>
 
         {canManageInventory && (
-          <Pressable style={styles.resetButton} onPress={handleResetOperationalState}>
+          <Pressable
+            style={styles.resetButton}
+            onPress={() => { void handleResetOperationalState(); }}
+            accessibilityRole="button"
+          >
             <Text style={styles.resetButtonText}>Reiniciar a 0</Text>
           </Pressable>
         )}
       </View>
+
+      {showResetConfirm && (
+        <View style={styles.confirmOverlay} pointerEvents="auto">
+          <View style={styles.confirmModal}>
+            <Text style={styles.confirmTitle}>Reiniciar a 0</Text>
+            <Text style={styles.confirmText}>Esto dejará en cero las solicitudes, entregas, devoluciones y notificaciones del sistema. ¿Deseas continuar?</Text>
+            <View style={styles.confirmActions}>
+              <Pressable style={[styles.confirmButton, styles.cancelButton]} onPress={() => setShowResetConfirm(false)}>
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.confirmButton, styles.confirmDangerButton, isResetting && styles.confirmDisabledButton]}
+                onPress={() => { void confirmResetOperationalState(); }}
+                disabled={isResetting}
+              >
+                <Text style={styles.confirmDangerText}>{isResetting ? 'Reiniciando...' : 'Reiniciar'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Filtros</Text>
@@ -398,6 +436,70 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  confirmOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 20,
+  },
+  confirmModal: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  confirmTitle: {
+    color: '#0f172a',
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  confirmText: {
+    color: '#475569',
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  confirmButton: {
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#e2e8f0',
+  },
+  cancelButtonText: {
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  confirmDangerButton: {
+    backgroundColor: '#b91c1c',
+  },
+  confirmDisabledButton: {
+    opacity: 0.7,
+  },
+  confirmDangerText: {
     color: '#fff',
     fontWeight: '700',
   },

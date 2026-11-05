@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { cleanupOrphanToolMovements, createTool, deleteTool, getTools, resetOperationalState, updateTool } from '../../services/firebaseService';
+import { cleanupOrphanToolMovements, createTool, deleteTool, getTools, updateTool } from '../../services/firebaseService';
 import type { Tool, ToolStatus } from '../../types';
 
 const statusLabels: Record<string, string> = {
@@ -169,32 +169,6 @@ export default function CatalogScreen() {
     }
   };
 
-  const handleResetOperationalState = async () => {
-    Alert.alert(
-      'Reiniciar flujo operativo',
-      'Se eliminarán solicitudes, entregas, devoluciones y notificaciones del sistema. Las herramientas volverán a estar disponibles. ¿Deseas continuar?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Reiniciar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await resetOperationalState();
-              Alert.alert(
-                'Sistema reiniciado',
-                `Se limpiaron ${result.deletedRequests} solicitudes, ${result.deletedDeliveries} entregas, ${result.deletedReturns} devoluciones, ${result.deletedNotifications} notificaciones y ${result.deletedAuditLogs ?? 0} registros de auditoría. ${result.resetTools} herramientas quedaron disponibles.`,
-              );
-              await fetchTools();
-            } catch (error: any) {
-              Alert.alert('Error', error?.message ?? 'No se pudo reiniciar el flujo operativo.');
-            }
-          },
-        },
-      ],
-    );
-  };
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <Text style={styles.title}>Inventario de herramientas</Text>
@@ -205,22 +179,16 @@ export default function CatalogScreen() {
       </View>
 
       {canManageInventory && (
-        <>
-          <Pressable
-            style={styles.primaryButton}
-            onPress={() => {
-              setEditingId(null);
-              setForm(emptyForm);
-              setShowForm((prev) => !prev);
-            }}
-          >
-            <Text style={styles.primaryButtonText}>{showForm ? 'Cancelar' : '+ Nueva herramienta'}</Text>
-          </Pressable>
-
-          <Pressable style={styles.secondaryButton} onPress={handleResetOperationalState}>
-            <Text style={styles.secondaryButtonText}>Reiniciar flujo operativo</Text>
-          </Pressable>
-        </>
+        <Pressable
+          style={styles.primaryButton}
+          onPress={() => {
+            setEditingId(null);
+            setForm(emptyForm);
+            setShowForm((prev) => !prev);
+          }}
+        >
+          <Text style={styles.primaryButtonText}>{showForm ? 'Cancelar' : '+ Nueva herramienta'}</Text>
+        </Pressable>
       )}
 
       <View style={styles.filterCard}>

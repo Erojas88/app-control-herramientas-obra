@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { getDashboardSummary, getNotificationsByUser, getTools, markNotificationsAsRead, resetOperationalState } from '../../services/firebaseService';
+import { getDashboardSummary, getNotificationsByUser, getTools, markNotificationsAsRead } from '../../services/firebaseService';
 import { buildRequesterAccessUrl } from '../../utils/quickAccess';
 
 const emptySummary = {
@@ -79,39 +79,6 @@ export default function DashboardScreen() {
     };
   }, [user?.uid]);
 
-  const handleResetDashboardState = async () => {
-    if (user?.role !== 'admin') {
-      return;
-    }
-
-    Alert.alert(
-      'Reiniciar dashboard',
-      'Esto dejará en cero las métricas del dashboard y limpiará el flujo operativo. ¿Deseas continuar?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Reiniciar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setSummary(emptySummary);
-              setTools([]);
-              setNotifications([]);
-
-              const result = await resetOperationalState();
-              Alert.alert(
-                'Dashboard reiniciado',
-                `Se limpiaron ${result.deletedRequests} solicitudes, ${result.deletedDeliveries} entregas, ${result.deletedReturns} devoluciones y ${result.deletedNotifications} notificaciones. ${result.resetTools} herramientas quedaron disponibles.`,
-              );
-            } catch (error: any) {
-              Alert.alert('Error', error?.message ?? 'No se pudo reiniciar el dashboard.');
-            }
-          },
-        },
-      ],
-    );
-  };
-
   const dashboardSummary = summary;
 
   const cards = useMemo(() => [
@@ -135,20 +102,14 @@ export default function DashboardScreen() {
       <Text style={styles.subtitle}>{user?.role ? `Rol: ${user.role}` : 'Jefe de obra'} · Proyecto Jardín Botanico</Text>
 
       {user?.role === 'admin' && (
-        <>
-          <Pressable style={styles.resetButton} onPress={handleResetDashboardState}>
-            <Text style={styles.resetButtonText}>Reiniciar a 0</Text>
-          </Pressable>
-
-          <View style={styles.sectionBox}>
+        <View style={styles.sectionBox}>
           <Text style={styles.sectionTitle}>Acceso directo para solicitantes</Text>
           <Text style={styles.qrDescription}>Escanea este QR para abrir la app en modo solicitante y crear solicitudes de herramientas.</Text>
           <View style={styles.qrWrapper}>
             <QRCode value={requesterAccessUrl} size={180} backgroundColor="#ffffff" color="#0f172a" />
           </View>
-            <Text style={styles.qrUrl}>{requesterAccessUrl}</Text>
-          </View>
-        </>
+          <Text style={styles.qrUrl}>{requesterAccessUrl}</Text>
+        </View>
       )}
 
       <View style={styles.grid}>
@@ -246,19 +207,6 @@ const styles = StyleSheet.create({
   },
   cardValue: {
     fontSize: 30,
-    fontWeight: '700',
-  },
-  resetButton: {
-    backgroundColor: '#dc2626',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  resetButtonText: {
-    color: '#fff',
-    fontSize: 15,
     fontWeight: '700',
   },
   sectionBox: {

@@ -139,6 +139,54 @@ export const summarizeInventory = (
 const hasApprovalStatus = (value: unknown, expected: 'pending' | 'approved' | 'rejected') =>
   normalizeApprovalStatus(value) === expected;
 
+const LOCAL_OPERATIONAL_STATE_KEY = 'control-herramientas-obra:operational-state-v1';
+
+type LocalOperationalState = {
+  tools: Tool[];
+  requests: ToolRequest[];
+  notifications: NotificationItem[];
+};
+
+const readLocalOperationalState = (): LocalOperationalState => {
+  const fallback = {
+    tools: mockTools,
+    requests: getLocalDemoRequests(),
+    notifications: [] as NotificationItem[],
+  };
+
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_OPERATIONAL_STATE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<LocalOperationalState>;
+    return {
+      tools: Array.isArray(parsed.tools) ? parsed.tools : fallback.tools,
+      requests: Array.isArray(parsed.requests) ? parsed.requests : fallback.requests,
+      notifications: Array.isArray(parsed.notifications) ? parsed.notifications : fallback.notifications,
+    };
+  } catch {
+    return fallback;
+  }
+};
+
+const writeLocalOperationalState = (state: LocalOperationalState) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(LOCAL_OPERATIONAL_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore storage issues in restricted browsers.
+  }
+};
+
 const getLocalDemoRequests = (): ToolRequest[] =>
   mockRequests.map((request) => ({
     ...request,
@@ -233,7 +281,7 @@ const normalizeToolRequest = (requestId: string, data: any): ToolRequest => {
 
 export const getTools = async (): Promise<Tool[]> => {
   if (!db || !isFirebaseConfigured) {
-    return mockTools.map((tool) => normalizeToolDoc(tool.id, tool));
+    return readLocalOperationalState().tools.map((tool) => normalizeToolDoc(tool.id, tool));
   }
 
   const snapshot = await getDocs(collection(db, 'tools'));
@@ -316,44 +364,73 @@ export const cleanupOrphanToolMovements = async () => {
 export const resetOperationalState = async () => {
   const firestoreDb = db;
 
+  const fallbackLocalReset = () => {
+    const localState = readLocalOperationalState();
+    const nextTools = localState.tools.map((tool) => ({
+      ...tool,
+      status: 'available' as ToolStatus,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    writeLocalOperationalState({
+      tools: nextTools,
+      requests: [],
+      notifications: [],
+    });
+
+    return {
+      deletedRequests: localState.requests.length,
+      deletedDeliveries: 0,
+      deletedReturns: 0,
+      deletedNotifications: localState.notifications.length,
+      deletedAuditLogs: 0,
+      resetTools: nextTools.length,
+    };
+  };
+
   if (!firestoreDb || !isFirebaseConfigured) {
-    throw new Error('Firebase no está configurado para reiniciar el flujo operativo. Verifica la configuración de Firebase y vuelve a intentarlo.');
+    return fallbackLocalReset();
   }
 
-  const [toolsSnapshot, requestsSnapshot, deliveriesSnapshot, returnsSnapshot, notificationsSnapshot, auditLogsSnapshot] = await Promise.all([
-    getDocs(collection(firestoreDb, 'tools')),
-    getDocs(collection(firestoreDb, 'toolRequests')),
-    getDocs(collection(firestoreDb, 'toolDeliveries')),
-    getDocs(collection(firestoreDb, 'toolReturns')),
-    getDocs(collection(firestoreDb, 'notifications')),
-    getDocs(collection(firestoreDb, 'auditLogs')),
-  ]);
+  try {
+    const [toolsSnapshot, requestsSnapshot, deliveriesSnapshot, returnsSnapshot, notificationsSnapshot, auditLogsSnapshot] = await Promise.all([
+      getDocs(collection(firestoreDb, 'tools')),
+      getDocs(collection(firestoreDb, 'toolRequests')),
+      getDocs(collection(firestoreDb, 'toolDeliveries')),
+      getDocs(collection(firestoreDb, 'toolReturns')),
+      getDocs(collection(firestoreDb, 'notifications')),
+      getDocs(collection(firestoreDb, 'auditLogs')),
+    ]);
 
-  const resetTools = await Promise.all(
-    toolsSnapshot.docs.map((docSnap) => updateDoc(doc(firestoreDb, 'tools', docSnap.id), {
-      status: 'available',
-      updatedAt: new Date().toISOString(),
-    })),
-  );
+    const resetTools = await Promise.all(
+      toolsSnapshot.docs.map((docSnap) => updateDoc(doc(firestoreDb, 'tools', docSnap.id), {
+        status: 'available',
+        updatedAt: new Date().toISOString(),
+      })),
+    );
 
-  const deleteOperations = [
-    ...requestsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'toolRequests', docSnap.id))),
-    ...deliveriesSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'toolDeliveries', docSnap.id))),
-    ...returnsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'toolReturns', docSnap.id))),
-    ...notificationsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'notifications', docSnap.id))),
-    ...auditLogsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'auditLogs', docSnap.id))),
-  ];
+    const deleteOperations = [
+      ...requestsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'toolRequests', docSnap.id))),
+      ...deliveriesSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'toolDeliveries', docSnap.id))),
+      ...returnsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'toolReturns', docSnap.id))),
+      ...notificationsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'notifications', docSnap.id))),
+      ...auditLogsSnapshot.docs.map((docSnap) => deleteDoc(doc(firestoreDb, 'auditLogs', docSnap.id))),
+    ];
 
-  await Promise.all(deleteOperations);
+    await Promise.all(deleteOperations);
 
-  return {
-    deletedRequests: requestsSnapshot.size,
-    deletedDeliveries: deliveriesSnapshot.size,
-    deletedReturns: returnsSnapshot.size,
-    deletedNotifications: notificationsSnapshot.size,
-    deletedAuditLogs: auditLogsSnapshot.size,
-    resetTools: resetTools.length,
-  };
+    return {
+      deletedRequests: requestsSnapshot.size,
+      deletedDeliveries: deliveriesSnapshot.size,
+      deletedReturns: returnsSnapshot.size,
+      deletedNotifications: notificationsSnapshot.size,
+      deletedAuditLogs: auditLogsSnapshot.size,
+      resetTools: resetTools.length,
+    };
+  } catch (error) {
+    console.warn('No se pudo reiniciar el estado operativo en Firebase, usando fallback local.', error);
+    return fallbackLocalReset();
+  }
 };
 
 export const deleteTool = async (toolId: string) => {
@@ -397,7 +474,7 @@ export const getUsers = async (): Promise<UserProfile[]> => {
 
 export const getAllRequests = async (): Promise<ToolRequest[]> => {
   if (!db || !isFirebaseConfigured) {
-    return getLocalDemoRequests();
+    return readLocalOperationalState().requests;
   }
 
   const snapshot = await getDocs(collection(db, 'toolRequests'));
@@ -481,8 +558,9 @@ export const getDashboardSummary = async () => {
   };
 
   if (!db || !isFirebaseConfigured) {
-    const requests = getLocalDemoRequests();
-    const tools = mockTools.map((tool) => normalizeToolDoc(tool.id, tool));
+    const localState = readLocalOperationalState();
+    const requests = localState.requests;
+    const tools = localState.tools.map((tool) => normalizeToolDoc(tool.id, tool));
     const { totalInventory, available, loaned, overdue, damaged, pending, approved, rejected } = summarizeInventory(
       tools,
       requests,

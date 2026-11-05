@@ -19,13 +19,22 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const normalizeRole = (role?: string): UserProfile['role'] => {
-  const normalized = (role ?? 'solicitante').toLowerCase();
+  const normalized = (role ?? 'solicitante').trim().toLowerCase().replace(/\s+/g, ' ');
 
-  if (normalized === 'jefe' || normalized === 'jefeobra' || normalized === 'jefe_obra') {
+  if (normalized === 'jefe' || normalized === 'jefeobra' || normalized === 'jefe_obra' || normalized === 'jefe de obra') {
     return 'jefe_obra';
   }
 
-  if (normalized === 'admin') {
+  if (
+    normalized === 'admin'
+    || normalized === 'administrador'
+    || normalized === 'administradorobra'
+    || normalized === 'administrador de obra'
+    || normalized === 'administrador obra'
+    || normalized === 'adminobra'
+    || normalized === 'admin obra'
+    || normalized === 'admin_obra'
+  ) {
     return 'admin';
   }
 
