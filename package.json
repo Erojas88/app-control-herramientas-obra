@@ -75,5 +75,8 @@
       ],
       "icon": "assets/icon.png"
     }
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.6"
   }
 }
