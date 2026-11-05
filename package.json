@@ -12,7 +12,10 @@
     "web": "expo start --web",
     "build": "expo export -p web",
     "desktop": "electron ./desktop/main.js",
-    "dist:desktop": "cd desktop && npx electron-builder --config electron-builder.json"
+    "dist:desktop": "cd desktop && npx electron-builder --config electron-builder.json",
+    "reset:operational-state": "node scripts/reset-operational-state.mjs",
+    "qa:stress": "node scripts/stress-test.mjs",
+    "qa:security": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

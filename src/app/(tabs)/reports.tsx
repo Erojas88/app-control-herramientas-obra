@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { getAllRequests, getEffectiveRequestStatus } from '../../services/firebaseService';
+import { useAuth } from '../../context/AuthContext';
+import { getAllRequests, getEffectiveRequestStatus, resetOperationalState } from '../../services/firebaseService';
 import type { ToolRequest } from '../../types';
 
 const formatDate = (value?: string) => {
@@ -53,19 +54,22 @@ const exportPdf = (rows: ToolRequest[]) => {
 };
 
 export default function ReportsScreen() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState<ToolRequest[]>([]);
   const [filterProject, setFilterProject] = useState('');
   const [filterTool, setFilterTool] = useState('');
   const [filterWorker, setFilterWorker] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  useEffect(() => {
-    const load = async () => {
-      const allRequests = await getAllRequests();
-      setRequests(allRequests);
-    };
+  const canManageInventory = user?.role === 'admin';
 
-    load();
+  const loadRequests = async () => {
+    const allRequests = await getAllRequests();
+    setRequests(allRequests);
+  };
+
+  useEffect(() => {
+    loadRequests();
   }, []);
 
   const filteredRequests = useMemo(() => {
@@ -105,6 +109,32 @@ export default function ReportsScreen() {
     exportPdf(filteredRequests);
   };
 
+  const handleResetOperationalState = async () => {
+    Alert.alert(
+      'Reiniciar flujo operativo',
+      'Esto dejará en cero las solicitudes, entregas, devoluciones y notificaciones del sistema. ¿Deseas continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Reiniciar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await resetOperationalState();
+              Alert.alert(
+                'Sistema reiniciado',
+                `Se limpiaron ${result.deletedRequests} solicitudes, ${result.deletedDeliveries} entregas, ${result.deletedReturns} devoluciones, ${result.deletedNotifications} notificaciones y ${result.deletedAuditLogs ?? 0} registros de auditoría. ${result.resetTools} herramientas quedaron disponibles.`,
+              );
+              await loadRequests();
+            } catch (error: any) {
+              Alert.alert('Error', error?.message ?? 'No se pudo reiniciar el flujo operativo.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Reportes</Text>
@@ -115,6 +145,12 @@ export default function ReportsScreen() {
         <Text style={styles.metric}>Solicitudes aprobadas: {approved}</Text>
         <Text style={styles.metric}>Solicitudes pendientes: {pending}</Text>
         <Text style={styles.metric}>Solicitudes rechazadas: {rejected}</Text>
+
+        {canManageInventory && (
+          <Pressable style={styles.resetButton} onPress={handleResetOperationalState}>
+            <Text style={styles.resetButtonText}>Reiniciar a 0</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.card}>
@@ -353,6 +389,17 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 10,
     backgroundColor: '#e2e8f0',
+  },
+  resetButton: {
+    backgroundColor: '#b91c1c',
+    borderRadius: 10,
+    paddingVertical: 12,
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  resetButtonText: {
+    color: '#fff',
+    fontWeight: '700',
   },
   exportButton: {
     backgroundColor: '#0f766e',
